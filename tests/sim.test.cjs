@@ -121,5 +121,79 @@ function playWholeGame(seed, first) {
   check("seed se mezi partiemi mění", s0 !== s1);
 }
 
+// ---------- 5) pasti: velikost odpovídá kreslení, nepřečnívají přes zeď a nejdou přes sebe ----------
+{
+  const t0 = performance.now();
+  // a) clear musí pokrýt viditelnou velikost ze scene.js (mlýnek: prstenec MLYN_R+0.08, louže: LOUZE_R, krtinec: sukně KOPEC_R)
+  const vis = { mlyn: J.MLYN_R + 0.08, louze: J.LOUZE_R, kopec: J.KOPEC_R };
+  check("pasti: clear >= viditelný poloměr (mlýnek, louže, krtinec)", Object.keys(vis).every(k => J.TRAPS[k].clear >= vis[k] - 1e-9), Object.keys(vis).map(k => `${k} ${J.TRAPS[k].clear}/${vis[k].toFixed(2)}`).join(", "));
+  check("pasti: louže má ~0,8 a krtinec je menší než dřív (<= 0,9)", J.TRAPS.louze.clear >= 0.8 && J.KOPEC_R <= 0.9);
+  // b) každé platné místo má celou viditelnou plochu na trávníku (96 bodů po obvodu; pérovačka po celé délce)
+  let spots = 0, over = 0;
+  for (let i = 1; i <= 12; i++) for (let hi = 0; hi < 6; hi++) {
+    const c = J.hole(J.hashStr("pasti:" + i), hi);
+    for (const k of J.TRAP_KINDS) for (let q = 0; q < 60; q++) {
+      const x = Math.round((0.5 + (q * 7919 % (c.W * 20)) / 20) * 20), y = Math.round((0.5 + (q * 104729 % (c.H * 20)) / 20) * 20), a = q % J.ROT;
+      const t = { k, x, y, a: J.TRAPS[k].rot ? a : 0 };
+      if (!J.trapValid(c, t)) continue;
+      spots++;
+      const g = J.trapGeom(t), pts = [], R = J.TRAPS[k].clear;
+      for (let n = 0; n < 96; n++) pts.push([g.x + R * Math.cos((n + 0.5) / 96 * J.TAU), g.y + R * Math.sin((n + 0.5) / 96 * J.TAU)]);
+      if (k === "stena") for (let s = -1; s <= 1; s += 0.1) pts.push([g.x + g.ux * J.STENA_H * s, g.y + g.uy * J.STENA_H * s]);
+      if (pts.some(p => J.where(c, p[0], p[1]) !== J.FLOOR)) over++;
+    }
+  }
+  check("pasti: žádná platná past nepřečnívá přes zeď ani vodu", spots > 200 && over === 0, `${spots} platných míst, ${over} přečnívajících`);
+  // c) překryv: obě pasti na stejném místě
+  const st = { same: 0, moved: 0, dropped: 0, order: 0, bad: 0, cases: 0 };
+  for (let i = 1; i <= 40; i++) for (const hi of [0, 2, 4]) {
+    const seed = J.hashStr("kryt:" + i), g0 = { ...J.newGame(seed, "x"), hole: hi }, c = J.courseOf(g0);
+    const kx = J.offer(g0, "x")[0], ko = J.offer(g0, "o")[0];
+    const dTee = c.df[Math.floor(c.tee[1]) * c.W + Math.floor(c.tee[0])], cand = [];
+    for (let y = 0; y < c.H; y++) for (let x = 0; x < c.W; x++) { const d = c.df[y * c.W + x]; if (d < 1e8) cand.push({ x: x + 0.5, y: y + 0.5, s: Math.abs(d - dTee * 0.5) }); }
+    cand.sort((a, b) => a.s - b.s);
+    const tx = cand.map(q => ({ k: kx, x: Math.round(q.x * 20), y: Math.round(q.y * 20), a: 0, by: "x" })).find(t => J.trapValid(c, t));
+    if (!tx) continue;
+    const to = { k: ko, x: tx.x, y: tx.y, a: 0, by: "o" };
+    if (!J.trapValid(c, to)) continue;
+    st.cases++;
+    const a = J.placeTrap(J.placeTrap(g0, "x", tx), "o", to), b = J.placeTrap(J.placeTrap(g0, "o", to), "x", tx);
+    if (JSON.stringify(a.traps) !== JSON.stringify(b.traps)) st.order++;
+    const x = a.traps.find(t => t.by === "x"), o = a.traps.find(t => t.by === "o");
+    if (!x) st.bad++;
+    if (o) {
+      if (J.overlaps(x, o) || !J.trapValid(c, o)) st.bad++;
+      if (o.x !== to.x || o.y !== to.y) st.moved++; else st.same++;
+    } else { st.dropped++; if (a.pend.o !== false) st.bad++; }
+  }
+  check("pasti: dvě pasti na stejném místě se nikdy nepřekryjí (past 'o' se posune nebo propadne)", st.cases >= 40 && st.bad === 0 && st.same === 0, JSON.stringify(st));
+  check("pasti: výsledek nezávisí na tom, kdo past postavil první", st.order === 0, `${st.order} rozdílů z ${st.cases}`);
+  // c2) pevný případ, kdy pro past 'o' není v okolí 3 políček žádné platné místo: propadne (pend.o === false)
+  {
+    const g0 = { ...J.newGame(3353093136, "x"), hole: 2 }, tx = { k: "mlyn", x: 125, y: 195, a: 0 }, to = { k: "mlyn", x: 125, y: 195, a: 0 };
+    const a = J.placeTrap(J.placeTrap(g0, "x", tx), "o", to), b = J.placeTrap(J.placeTrap(g0, "o", to), "x", tx);
+    check("pasti: když pro past 'o' není volné místo, propadne (pend.o false, zůstane past x) a ne podle pořadí", a.pend.o === false && a.traps.length === 1 && a.traps[0].by === "x" && a.ph === "play" && JSON.stringify(a.traps) === JSON.stringify(b.traps) && b.pend.o === false);
+  }
+  // d) bez překryvu se nic neposouvá
+  const gA = { ...J.newGame(J.hashStr("kryt:1"), "x"), hole: 1 };
+  const sx = trapSpot(gA, "x"), gB = J.placeTrap(gA, "x", sx), so = trapSpot(gB, "o"), gC = J.placeTrap(gB, "o", so);
+  const px = gC.pend.x, po = gC.pend.o;
+  check("pasti: když se nekryjí, nic se neposouvá", !(px && po) || J.overlaps(px, po) || (gC.traps[1].x === po.x && gC.traps[1].y === po.y));
+  console.log(`      (${ms(t0)} ms; překryv: ${st.moved} posunuto, ${st.dropped} propadlo z ${st.cases})`);
+}
+
+// ---------- 6) první jamka je pestrá a místní režim bere seed z ?mistni= ----------
+{
+  const skel = c => c.legs.map(l => l.d + (l.f ? l.f[0] : "-")).join("") + c.W + "x" + c.H;
+  const first20 = new Set(); for (let i = 1; i <= 20; i++) first20.add(skel(J.hole(J.hashStr("g:" + i), 0)));
+  check("první jamka: tvar (zatáčky, rysy, rozměr) se liší napříč 20 seedy aspoň v 15 případech", first20.size >= 15, `${first20.size}/20 různých`);
+  const legsN = new Set(); for (let i = 1; i <= 40; i++) legsN.add(J.hole(J.hashStr("g:" + i), 0).legs.length);
+  check("první jamka: 3 i 4 nohy (jen jeden rys)", legsN.has(3) && legsN.has(4), [...legsN].join(","));
+  const seeds = ["3", "7", "11"].map(n => J.hashStr("mistni-" + n + ":0"));
+  check("místní režim: seedy ?mistni=3/7/11 jsou tři různé a první jamky se liší", new Set(seeds).size === 3 && new Set(seeds.map(s => skel(J.hole(s, 0)))).size === 3, seeds.join(","));
+  const main = require("fs").readFileSync(require("path").join(__dirname, "..", "src", "main.js"), "utf8");
+  check("místní režim: main.js skládá room.id z Q.get(\"mistni\") a seed z room.id + gi", /Q\.get\("mistni"\)/.test(main) && /id: "mistni-" \+ seed/.test(main) && /J\.hashStr\(room\.id \+ ":" \+ gi\)/.test(main));
+}
+
 console.log(`\n${pass}/${pass + fail} PASS${fail ? `, ${fail} FAIL` : ""}`);
 process.exit(fail ? 1 : 0);

@@ -27,10 +27,12 @@ Playwright se bere z `%APPDATA%/npm/node_modules/playwright` (jinak proměnná `
 
 | příkaz | co dělá |
 |---|---|
-| `node tests/sim.test.cjs` | jádro bez prohlížeče: determinismus `shoot` a `replay`, 50 seedů × 6 jamek hratelných, 3 partie se liší (~10 s) |
+| `node tests/sim.test.cjs` | jádro bez prohlížeče: determinismus `shoot` a `replay`, 50 seedů × 6 jamek hratelných, pasti (velikost = kreslení, překryv), první jamka pestrá, 3 partie se liší (~1 min) |
 | `node tests/duel.cjs [URL]` | Chromium desktop (Mark) + WebKit iPhone 13 (Radka) + divák přes skutečný mantledb, celá partie, porovnání stavu po každém úderu (`MAXHOLES=2` zkrátí) |
 | `node tests/perf.cjs [URL]` | WebKit iPhone 13: FPS během úderu a čas `JM.hole` pro 6 jamek |
-| `node tests/rendery.cjs` | rendery vybraného návrhu do `design/a-*.png` (past, úder, výsledek, konec; desktop + iPhone, ~4 minuty) |
+| `node tests/kamera.cjs [seed ...]` | kamera při úderu: míček, jamka a špička praporku projekcí do pixelů proti skutečným obdélníkům HUD (seedy 3, 7, 11; Chromium + WebKit iPhone; `SHOTS=1` ukládá snímky vad) |
+| `node tests/pamet.cjs [seed]` | únik paměti scény (`renderer.info`) přes celou partii, výchozí WebKit iPhone na šířku |
+| `SEED=7 node tests/rendery.cjs` | rendery do `design/a-s<seed>-<zařízení>-<záběr>.png` (past, úder, výsledek, konec; desktop + iPhone, ~4 minuty; `KRATKE=1` bez konce) |
 
 Snímky z `duel.cjs` jsou v `tests/shots/`. Háčky pro testy: `window.__jm` (`state`, `viewInfo`, `autoTrap`, `bot`, `shoot`, `scene`).
 

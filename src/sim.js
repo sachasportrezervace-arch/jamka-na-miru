@@ -47,14 +47,15 @@
     guma: { name: "Gumové mantinely", desc: "Mantinely odrážejí bez ztráty rychlosti." },
     mala: { name: "Malá jamka", desc: "Jamka je menší a míček musí přijet pomalu." },
   };
+  // clear = poloměr, který past zabere na trávníku (musí odpovídat tomu, co kreslí scene.js); foot = poloměr pro překryv dvou pastí
   const TRAPS = {
-    mlyn: { name: "Mlýnek", desc: "Lopatky se točí a odpálí, co jim vleze do cesty.", rot: false, clear: 1.02 },
-    louze: { name: "Louže", desc: "Míček v ní skoro zastaví.", rot: false, clear: 0.35 },
-    stena: { name: "Pérovačka", desc: "Stěna, která odrazí víc, než přiletělo.", rot: true, clear: 0.25 },
-    kopec: { name: "Krtinec", desc: "Kopeček, ze kterého míček sjede do strany.", rot: false, clear: 0.35 },
+    mlyn: { name: "Mlýnek", desc: "Lopatky se točí a odpálí, co jim vleze do cesty.", rot: false, clear: 1.03, foot: 1.03 },
+    louze: { name: "Louže", desc: "Míček v ní skoro zastaví.", rot: false, clear: 0.8, foot: 0.8 },
+    stena: { name: "Pérovačka", desc: "Stěna, která odrazí víc, než přiletělo.", rot: true, clear: 0.3, foot: 0.7 },
+    kopec: { name: "Krtinec", desc: "Kopeček, ze kterého míček sjede do strany.", rot: false, clear: 0.9, foot: 0.9 },
   };
   const TRAP_KINDS = Object.keys(TRAPS);
-  const LOUZE_R = 0.8, KOPEC_R = 1.1, KOPEC_H = 0.38, MLYN_R = 0.95, MLYN_W = 0.03, STENA_H = 0.7;
+  const LOUZE_R = 0.8, KOPEC_R = 0.9, KOPEC_H = 0.3, MLYN_R = 0.95, MLYN_W = 0.03, STENA_H = 0.7;
 
   // ---------- plán hry: 6 jamek, každá s rysy, tématem a modifikátorem ----------
   function plan(seed) {
@@ -68,7 +69,7 @@
     const mods = ["klid"];
     for (let i = 1; i < 6; i++) { let m; do m = r() < 0.25 ? "klid" : modKeys[Math.floor(r() * modKeys.length)]; while (m === mods[i - 1]); mods.push(m); }
     return sets.map((fs, i) => {
-      const legs = i === 0 ? 3 : Math.min(4, Math.max(3, fs.length + ri(r, 1, 2)));
+      const legs = i === 0 ? 3 + (r() < 0.5 ? 1 : 0) : Math.min(4, Math.max(3, fs.length + ri(r, 1, 2)));   // první jamka: 3 nebo 4 nohy, aby se partie lišily už od ní
       const feats = new Array(legs).fill("");
       const slots = shuffle([...Array(legs).keys()], r);
       fs.forEach((f, q) => { feats[slots[q]] = f; });
@@ -345,8 +346,8 @@
     if ((x - c.cup[0]) ** 2 + (y - c.cup[1]) ** 2 < 1.7 * 1.7) return false;
     for (const p of c.posts) if ((x - p.x) ** 2 + (y - p.y) ** 2 < (T.clear + 0.3) ** 2) return false;
     const pts = [];
-    for (let i = 0; i < 12; i++) { const a = i * TAU / 12; pts.push([x + dcos(a) * T.clear, y + dsin(a) * T.clear]); }
-    if (t.k === "stena") for (let s = -1; s <= 1; s += 0.25) pts.push([x + g.ux * (STENA_H + 0.12) * s, y + g.uy * (STENA_H + 0.12) * s]);
+    for (let i = 0; i < 48; i++) { const a = i * TAU / 48; pts.push([x + dcos(a) * T.clear, y + dsin(a) * T.clear]); }
+    if (t.k === "stena") for (let s = -1; s <= 1; s += 0.125) pts.push([x + g.ux * (STENA_H + 0.12) * s, y + g.uy * (STENA_H + 0.12) * s]);
     for (const [px, py] of pts) if (where(c, px, py) !== FLOOR) return false;
     return true;
   }
@@ -512,7 +513,7 @@
   const capOf = c => c.par + 3;                         // po tolika ranách bez jamky se jamka zapíše za cap+1
   function newGame(seed, first) {
     return { seed, first, hole: 0, ph: "trap", pend: { x: null, o: null }, traps: [], balls: freshBalls(), str: { x: 0, o: 0 }, done: { x: false, o: false },
-      sc: { x: [], o: [] }, pars: [], p: first, hf: first, n: 0,
+      sc: { x: [], o: [] }, pars: [], p: first, hf: first, n: 0, moved: false,
       stats: { x: { past: 0, mokro: 0, eso: 0, low: 0 }, o: { past: 0, mokro: 0, eso: 0, low: 0 } }, win: "" };
   }
   const courseOf = g => hole(g.seed, g.hole);
@@ -523,13 +524,37 @@
     return shuffle(TRAP_KINDS, r).slice(0, trailing(g, who) ? 3 : 2);
   }
   // past pokládají oba naráz a naslepo; hra jede dál, až jsou obě
+  // Dvě pasti se staví naslepo, takže se můžou překrýt. Pravidlo je stejné na obou zařízeních a nezávisí na tom, kdo přišel první:
+  // past hráče "o" se posune na nejbližší platné místo, které se nekryje s pastí hráče "x" (spirála po dvacetinách políčka);
+  // když žádné není, propadne.
+  const GAP = 0.2, SPIRAL = 60;
+  let spiralOffsets = null;
+  const overlaps = (a, b) => { const dx = a.x / 20 - b.x / 20, dy = a.y / 20 - b.y / 20, s = TRAPS[a.k].foot + TRAPS[b.k].foot + GAP; return dx * dx + dy * dy < s * s; };
+  function spiral() {
+    if (spiralOffsets) return spiralOffsets;
+    const list = [];
+    for (let dy = -SPIRAL; dy <= SPIRAL; dy++) for (let dx = -SPIRAL; dx <= SPIRAL; dx++) if (dx || dy) { const d2 = dx * dx + dy * dy; if (d2 <= SPIRAL * SPIRAL) list.push([d2, dy, dx]); }
+    list.sort((p, q) => p[0] - q[0] || p[1] - q[1] || p[2] - q[2]);
+    return (spiralOffsets = list);
+  }
+  function separate(c, tx, to) {
+    if (!overlaps(tx, to)) return to;
+    for (const [, dy, dx] of spiral()) {
+      const t = { ...to, x: to.x + dx, y: to.y + dy };
+      if (!overlaps(tx, t) && trapValid(c, t)) return t;
+    }
+    return null;
+  }
+  // past pokládají oba naráz a naslepo; hra jede dál, až jsou obě
   function placeTrap(g, by, t) {
     if (g.ph !== "trap" || g.pend[by] !== null) return null;
     const tr = { by, k: t.k, x: t.x | 0, y: t.y | 0, a: TRAPS[t.k] && TRAPS[t.k].rot ? (((t.a | 0) % ROT) + ROT) % ROT : 0 };
     const ok = offer(g, by).includes(t.k) && trapValid(courseOf(g), tr);
     const ng = { ...g, pend: { ...g.pend, [by]: ok ? tr : false } };
     if (ng.pend.x !== null && ng.pend.o !== null) {
-      ng.traps = [ng.pend.x, ng.pend.o].filter(Boolean);
+      let px = ng.pend.x, po = ng.pend.o;
+      if (px && po) { const m = separate(courseOf(g), px, po); if (m !== po) ng.moved = true; po = m || false; ng.pend = { x: px, o: po }; }
+      ng.traps = [px, po].filter(Boolean);
       ng.ph = "play"; ng.p = g.hf;
     }
     return ng;
@@ -558,7 +583,7 @@
       } else {
         // čest odpalu: kdo jamku zahrál líp, začíná další; při shodě se střídá
         const hf = str.x < str.o ? "x" : str.o < str.x ? "o" : other(g.hf);
-        ng = { ...ng, hole: g.hole + 1, ph: "trap", pend: { x: null, o: null }, traps: [], balls: freshBalls(), str: { x: 0, o: 0 }, done: { x: false, o: false }, hf, p: hf };
+        ng = { ...ng, hole: g.hole + 1, ph: "trap", pend: { x: null, o: null }, traps: [], moved: false, balls: freshBalls(), str: { x: 0, o: 0 }, done: { x: false, o: false }, hf, p: hf };
       }
     } else ng.p = done[other(by)] ? by : other(by);
     return { g: ng, res };
@@ -602,6 +627,6 @@
 
   const API = { PI, TAU, dsin, dcos, rng, hashStr, R, CUP_R, VMAX, ANG, ROT, VOID, FLOOR, WATER, BRIDGE, THEMES, THEME_NAMES, MODS, TRAPS, TRAP_KINDS,
     LOUZE_R, KOPEC_R, KOPEC_H, MLYN_R, STENA_H, plan, build, hole, botShot, botPar, surf, where, trapGeom, trapValid, trapHeight, bladeAngle, shoot, segDist,
-    other, total, newGame, courseOf, trailing, offer, placeTrap, playShot, replay, titles, capOf };
+    other, total, newGame, courseOf, trailing, offer, placeTrap, overlaps, playShot, replay, titles, capOf };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.JM = API;
 })(typeof self !== "undefined" ? self : this);

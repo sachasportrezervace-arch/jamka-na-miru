@@ -94,6 +94,8 @@ function layout() {
   sc.resize();
   const h = innerHeight, top = $("topbar").getBoundingClientRect().bottom, bot = h - $("dock").getBoundingClientRect().top;
   document.body.style.setProperty("--dockH", ($("dock").offsetHeight && getComputedStyle($("dock")).opacity !== "0" ? $("dock").offsetHeight + 8 : 0) + "px");
+  const box = id => { const e = $(id); if (!e || e.hidden) return null; const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return null; const r = e.getBoundingClientRect(); return r.width ? [r.left, r.top, r.right, r.bottom] : null; };
+  sc.setHudRects([box("bMenu"), box("bCam")].filter(Boolean));
   sc.setHudPad({ t: Math.min(0.5, (top + 8) / h * 2), b: Math.min(0.95, (bot + 8) / h * 2), l: 0.04, r: 0.04 });
 }
 addEventListener("resize", () => setTimeout(layout, 30));
@@ -194,7 +196,7 @@ function paintCard() {
 function paintDock() { paintDock0(); requestAnimationFrame(layout); }
 function resultHtml(r) {
   const win = r.v.x < r.v.o ? "x" : r.v.o < r.v.x ? "o" : "=";
-  const head = win === "=" ? "Jamka remíza" : room.local || !room.seat ? `Jamku bere ${esc(nameOf(win))}` : win === room.seat ? "Jamku bereš ty" : `Jamku bere ${esc(nameOf(win))}`;
+  const head = win === "=" ? "Remíza na jamce" : room.local || !room.seat ? `Jamku bere ${esc(nameOf(win))}` : win === room.seat ? "Jamku bereš ty" : `Jamku bere ${esc(nameOf(win))}`;
   const rows = ["x", "o"].map(p => `<div class="rl r-${p}${win === p ? " w" : ""}">${ballSvg(p, r.face[p])}<span>${esc(nameOf(p))}</span><b>${r.v[p]}</b><em>${r.v[p] === 1 ? "eso!" : rel(r.v[p] - r.par)}</em></div>`).join("");
   return `<div class="res"><div class="rh"><b>${head}</b><span>jamka ${r.h + 1} · par ${r.par}</span></div>${rows}</div>`;
 }
@@ -302,7 +304,7 @@ async function animate(st) {
       if (holeOn !== st.g0.hole) enterStateFor(st.g0);
       sc.setTraps(st.g.traps, me(), st.g.n); sc.dropTraps(); sound.trap();
       const bad = ["x", "o"].filter(p => st.g.pend[p] === false);
-      toast(bad.length ? "Jedna past se nevešla a propadla." : "Pasti jsou venku!", 2000);
+      toast(bad.length ? "Jedna past se nevešla a propadla." : st.g.moved ? "Pasti jsou venku! Jedna se kousek posunula, aby se nekryly." : "Pasti jsou venku!", st.g.moved ? 2800 : 2000);
       sc.setMode("hole");
       await sleep(1100);
     } else if (!room.local && opp !== room.seat) toast(`${nameOf(opp)} už past postavil(a). Je schovaná, dokud nepostavíš svou.`, 3200);

@@ -8,9 +8,9 @@ const THEME = {
   zahrada: { sky: "#CFEBD9", ground: "#9CCB72", ground2: "#8DBF63", turfA: "#57B947", turfB: "#4DAE3F", wall: "#F6E7C8", wallSide: "#E3C99B", post: "#E9D3A6",
     skirt: "#7E5B3A", water: "#47B6E0", waterDeep: "#2E93C4", plank: "#C98A4B", plank2: "#B87A3E", tree: "#3F9A4E", tree2: "#2F8540", trunk: "#8A5A35", rock: "#B7B9A8", flag: "#FFD23F", accent: "#F25F5C" },
   plaz: { sky: "#BFE6F2", ground: "#F3DDA4", ground2: "#EBCF8E", turfA: "#3FBF9A", turfB: "#36B08D", wall: "#FFFFFF", wallSide: "#D8E6EE", post: "#FF8A5B",
-    skirt: "#C99A5B", water: "#2FB6DE", waterDeep: "#1F92BE", plank: "#D9A066", plank2: "#C58C55", tree: "#39A86B", tree2: "#2C9058", trunk: "#B07A47", rock: "#E6D2A8", flag: "#FF5D73", accent: "#FF8A5B" },
-  zima: { sky: "#DCE8F5", ground: "#F4F8FB", ground2: "#E6EEF5", turfA: "#5DB88E", turfB: "#52AC82", wall: "#E8584A", wallSide: "#C8463A", post: "#FFFFFF",
-    skirt: "#8C9DB0", water: "#7FC4E8", waterDeep: "#5AA6D4", plank: "#A7774E", plank2: "#956844", tree: "#2F7D5B", tree2: "#25694C", trunk: "#6E4A32", rock: "#C9D3DE", flag: "#3E8BFF", accent: "#E8584A" },
+    skirt: "#B58546", water: "#2FB6DE", waterDeep: "#1F92BE", plank: "#D9A066", plank2: "#C58C55", tree: "#39A86B", tree2: "#2C9058", trunk: "#B07A47", rock: "#E6D2A8", flag: "#FF5D73", accent: "#FF8A5B" },
+  zima: { sky: "#DCE8F5", ground: "#F4F8FB", ground2: "#E6EEF5", turfA: "#5DB88E", turfB: "#52AC82", wall: "#E8584A", wallSide: "#B03A30", post: "#FFFFFF",
+    skirt: "#566F8C", water: "#7FC4E8", waterDeep: "#5AA6D4", plank: "#A7774E", plank2: "#956844", tree: "#2F7D5B", tree2: "#25694C", trunk: "#6E4A32", rock: "#C9D3DE", flag: "#3E8BFF", accent: "#E8584A" },
 };
 const col = h => new THREE.Color(h);
 
@@ -125,11 +125,13 @@ export function createScene(canvas) {
   const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.2, 3), new THREE.MeshBasicMaterial({ color: 0xffffff })); arrow.visible = false; scene.add(arrow);
 
   // ---------- stavba jamky ----------
-  function clear(g) { for (const o of [...g.children]) { g.remove(o); o.traverse(q => { if (q.geometry) q.geometry.dispose(); }); } }
+  // uvolní geometrie i materiály (textury obličejů jsou sdílené v faceCache a zůstávají)
+  function disposeTree(o) { o.traverse(q => { if (q.geometry) q.geometry.dispose(); if (q.material) for (const mm of Array.isArray(q.material) ? q.material : [q.material]) mm.dispose(); }); }
+  function clear(g) { for (const o of [...g.children]) { g.remove(o); disposeTree(o); } }
   const H = (X, Y) => c.hc[Y * (c.W + 1) + X];
   function setHole(course) {
     c = course; th = THEME[c.th] || THEME.zahrada;
-    clear(world); clear(trapG); clear(fx); traps = []; ghost = null;
+    clear(world); clear(trapG); clear(fx); clear(decoG); traps = []; ghost = null; cupSp = null; decoKey = "";
     scene.background = col(th.sky);
     scene.fog = new THREE.Fog(col(th.sky), 30, 70);
     hemi.groundColor = col(th.ground);
@@ -182,10 +184,20 @@ export function createScene(canvas) {
       m.quad(a0, a1, b1, b0, th.wallSide);
       m.quad(a1, a2, b2, b1, th.wall);
       m.quad(a2, a3, b3, b2, th.skirt);
-      for (const p of [[s[0], s[1], s[4]], [s[2], s[3], s[5]]]) { const k = p[0] + "," + p[1]; if (!posts.has(k)) posts.set(k, p); }
+      for (const p of [[s[0], s[1], s[4], dx / l, dz / l], [s[2], s[3], s[5], dx / l, dz / l]]) {
+        const k = p[0] + "," + p[1], e = posts.get(k);
+        if (e) e.dirs.push([p[3], p[4]]); else posts.set(k, { p, dirs: [[p[3], p[4]]] });
+      }
     }
-    for (const [px, pz, h] of posts.values()) {
-      const s = 0.12, t = h + WH + 0.05;
+    // sloupek jen tam, kde zeď mění směr (roh) nebo končí; na rovné zdi žádný
+    const corners = [];
+    for (const { p, dirs } of posts.values()) {
+      let corner = dirs.length < 2;
+      for (let i = 1; i < dirs.length && !corner; i++) if (Math.abs(dirs[0][0] * dirs[i][1] - dirs[0][1] * dirs[i][0]) > 0.2) corner = true;
+      if (corner) corners.push([p[0], p[1], p[2]]);
+    }
+    for (const [px, pz, h] of corners) {
+      const s = 0.085, t = h + WH + 0.05;
       const A = [px - s, t, pz - s], B = [px + s, t, pz - s], C = [px + s, t, pz + s], D = [px - s, t, pz + s];
       m.quad(A, D, C, B, th.post);
       const low = h + WH - 0.06;
@@ -218,30 +230,55 @@ export function createScene(canvas) {
     const cloth = fm.mesh(flatMat());
     flag.add(pole, cloth); flag.position.set(c.cup[0], ch, c.cup[1]); flag.userData.cloth = cloth; world.add(flag);
     fitHole();
-    decorate(r, GROUND);
+    redecorate(true);
   }
   // Ozdoba: jen 2-3 klidné prvky podle tématu (zahrada: kulatý strom, pláž: slunečník, zima: smrček).
-  // Stojí vedle trati nebo za ní (nikdy v zákrytu mezi kamerou a dráhou) a v záběru celé jamky.
-  function decorate(r, GROUND) {
-    const W = c.W, Hh = c.H;
+  // Stojí vedle trati nebo za ní, v záběru celé jamky a NIKDY v záběru výsledku jamky (kamera u jamky) ani v zákrytu mezi kamerou a dráhou.
+  // Rozhoduje se podle poměru stran (ne podle výšky panelu), ať ozdoby neblikají při změně HUD.
+  const decoG = new THREE.Group(); scene.add(decoG);
+  const GROUND_Y = -0.55;
+  const decoM = () => ({ t: Math.max(hudPad.t + 0.14, aspect < 1 ? 0.4 : 0.22), b: aspect < 1 ? 0.4 : 0.3, l: 0.04, r: 0.04 });   // nad skutečnou horní lištou + rezerva
+  let decoKey = "";
+  function redecorate(force) {
+    if (!c) return;
+    const key = c.seed + ":" + c.hi + ":" + (aspect < 1 ? "p" : "d") + Math.round(aspect * 10) + ":" + Math.round(hudPad.t * 20);
+    if (!force && key === decoKey) return;
+    decoKey = key; clear(decoG); decorate();
+  }
+  function bboxOutside(x, y, camNdcOut) {            // celá ozdoba (kvádr 1,6 × 1,6 × 1,7) je mimo obrazovku aktuální kamery
+    let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+    for (const dx of [-0.8, 0.8]) for (const dz of [-0.8, 0.8]) for (const hy of [GROUND_Y, GROUND_Y + 1.7]) {
+      const q = new THREE.Vector3(x + dx, hy, y + dz).project(camera);
+      if (q.z > 1) return false;
+      x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y);
+    }
+    return x1 < -1 - camNdcOut || x0 > 1 + camNdcOut || y1 < -1 - camNdcOut || y0 > 1 + camNdcOut;
+  }
+  function decorate() {
+    const W = c.W, Hh = c.H, r = J.rng(c.seed ^ (c.hi * 7919 + 13) ^ 0x51ed27);
     const near = (x, y, rad) => { for (let a = -rad; a <= rad; a++) for (let b = -rad; b <= rad; b++) { const X = Math.floor(x) + a, Y = Math.floor(y) + b; if (X >= 0 && Y >= 0 && X < W && Y < Hh && (c.type[Y * W + X] || c.island[Y * W + X])) return true; } return false; };
     const blocks = (x, y) => { for (let Y = 0; Y < Math.floor(y); Y++) for (let a = -1; a <= 1; a++) { const X = Math.floor(x) + a; if (X >= 0 && X < W && c.type[Y * W + X]) return true; } return false; };   // dráha leží severněji ve stejných sloupcích
-    const m = margins(), want = 2 + (r() < 0.5 ? 1 : 0), chosen = [];
+    const want = 2 + (r() < 0.5 ? 1 : 0), chosen = [], m = decoM();
+    const raw = [];
+    for (let y = -4; y <= Hh + 4; y += 0.5) for (let x = -4; x <= W + 4; x += 0.5) raw.push([x, y]);
+    // krok 1: mimo trať, mimo zákryt a mimo záběr výsledku jamky (kamera u jamky)
+    placeCupCam(fitCupDist(cupPts(null), m));
+    const away = raw.filter(([x, y]) => !near(x, y, 1) && !blocks(x, y) && bboxOutside(x, y, 0.08));
+    // krok 2: uvnitř záběru celé jamky
+    holeCam();
     for (const rad of [2, 1]) {
-      const cand = [];
-      for (let y = -4; y <= Hh + 4; y += 0.5) for (let x = -4; x <= W + 4; x += 0.5) {
-        if (near(x, y, rad) || blocks(x, y)) continue;
-        const q = new THREE.Vector3(x, GROUND + 0.8, y).project(camera);
-        if (q.z > 1 || q.x < -0.84 + m.l || q.x > 0.84 - m.r || q.y < -0.84 + m.b || q.y > 0.84 - m.t) continue;
-        cand.push([x, y]);
-      }
+      const cand = away.filter(([x, y]) => {
+        if (near(x, y, rad)) return false;
+        const q = new THREE.Vector3(x, GROUND_Y + 0.8, y).project(camera);
+        return !(q.z > 1 || q.x < -0.84 + m.l || q.x > 0.84 - m.r || q.y < -0.84 + m.b || q.y > 0.84 - m.t);
+      });
       while (cand.length && chosen.length < want) {
         const i = Math.floor(r() * cand.length), p = cand.splice(i, 1)[0];
         if (chosen.every(q => Math.hypot(q[0] - p[0], q[1] - p[1]) > 2.6)) chosen.push(p);
       }
       if (chosen.length >= want) break;
     }
-    for (const [x, y] of chosen) world.add(prop(x, y, GROUND, r));
+    for (const [x, y] of chosen) decoG.add(prop(x, y, GROUND_Y, r));
   }
   function prop(x, y, base, r) {
     const g = new THREE.Group(), s = 0.85 + r() * 0.45;
@@ -256,7 +293,6 @@ export function createScene(canvas) {
         um.tri([0, top, 0], [Math.cos(a0) * R0, rim, Math.sin(a0) * R0], [Math.cos(a1) * R0, rim, Math.sin(a1) * R0], i & 1 ? "#FFFFFF" : th.accent);
       }
       g.add(um.mesh(flatMat()));
-      const towel = new THREE.Mesh(new THREE.BoxGeometry(0.7 * s, 0.02, 0.38 * s), lowMat("#FFD23F")); towel.position.set(0.55 * s, 0.012, 0.15 * s); towel.rotation.y = 0.5; g.add(towel);
     } else {                                       // kulatý strom
       const t = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * s, 0.1 * s, 0.6 * s, 6), lowMat(th.trunk)); t.position.y = 0.3 * s; g.add(t);
       const k = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55 * s, 1), lowMat(r() < 0.5 ? th.tree : th.tree2)); k.position.y = 1.0 * s; k.scale.set(1, 0.92, 1); g.add(k);
@@ -269,7 +305,7 @@ export function createScene(canvas) {
   function trapMesh(t, ghostMode) {
     const g = new THREE.Group(), geo = J.trapGeom(t), h = J.surf(c, geo.x, geo.y).h;
     const owner = t.by ? PLAYER[t.by].ball : "#ffffff";
-    const ringR = t.k === "mlyn" ? J.MLYN_R + 0.08 : t.k === "louze" ? J.LOUZE_R : t.k === "kopec" ? J.KOPEC_R : J.STENA_H + 0.1;
+    const ringR = t.k === "mlyn" ? J.MLYN_R + 0.08 : t.k === "louze" ? J.LOUZE_R : t.k === "kopec" ? J.KOPEC_R : 0.32;
     const ring = new THREE.Mesh(new THREE.RingGeometry(ringR - 0.05, ringR, 28), new THREE.MeshBasicMaterial({ color: owner, transparent: true, opacity: 0.85, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; g.add(ring);
     if (t.k === "mlyn") {
@@ -337,7 +373,7 @@ export function createScene(canvas) {
     }
   }
   function setGhost(t, ok) {
-    if (ghost) { trapG.remove(ghost); ghost = null; }
+    if (ghost) { trapG.remove(ghost); disposeTree(ghost); ghost = null; }
     if (!t) return;
     ghost = trapMesh(t, true);
     ghost.userData.ring.material.color = col(ok ? "#FFFFFF" : "#FF3B30"); ghost.userData.ring.material.opacity = 1;
@@ -355,11 +391,11 @@ export function createScene(canvas) {
     if (!o.vis) return;
     o.x = b.x; o.y = b.y; place(k);
   }
-  // míček v jamce: zapuštěný, veselý, poskakuje (výsledek jamky)
-  function sinkBall(k, x, y, face) {
+  // míček dohrané jamky: stojí vedle jamky (mimo tyč praporku), veselý, poskakuje (výsledek jamky)
+  function sinkBall(k, x, y, face, sink) {
     const o = balls[k];
-    o.vis = true; o.x = x; o.y = y; o.sink = -J.R * 0.62; o.party = true;
-    o.g.visible = true; o.sh.visible = false; o.ring.visible = false;
+    o.vis = true; o.x = x; o.y = y; o.sink = sink || 0; o.party = true;
+    o.g.visible = true; o.sh.visible = !sink; o.ring.visible = false;
     setFace(k, face || "happy"); place(k);
   }
   function place(k) {
@@ -399,13 +435,13 @@ export function createScene(canvas) {
   }
 
   // ---------- efekty ----------
-  const parts = [];
+  const parts = [], partGeo = { confetti: new THREE.PlaneGeometry(0.09, 0.05), chip: new THREE.TetrahedronGeometry(0.06) };   // sdílené geometrie částic (nedisposují se po kusech)
   function burst(x, y, kind) {
     const z = J.surf(c, x, y).h;
     const n = kind === "voda" ? 10 : kind === "jamka" ? 14 : 6;
     const colors = kind === "voda" ? ["#FFFFFF", "#9FE0FF"] : kind === "jamka" ? ["#FFD23F", "#FF6A3D", "#3E8BFF", "#57B947", "#FFFFFF"] : ["#FFFFFF"];
     for (let i = 0; i < n; i++) {
-      const m = new THREE.Mesh(kind === "jamka" ? new THREE.PlaneGeometry(0.09, 0.05) : new THREE.TetrahedronGeometry(0.06), new THREE.MeshBasicMaterial({ color: colors[i % colors.length], side: THREE.DoubleSide, transparent: true }));
+      const m = new THREE.Mesh(kind === "jamka" ? partGeo.confetti : partGeo.chip, new THREE.MeshBasicMaterial({ color: colors[i % colors.length], side: THREE.DoubleSide, transparent: true }));
       const a = i / n * Math.PI * 2;
       m.position.set(x, z + 0.15, y);
       m.userData.v = new THREE.Vector3(Math.cos(a) * (0.02 + Math.random() * 0.025), 0.05 + Math.random() * 0.04, Math.sin(a) * (0.02 + Math.random() * 0.025));
@@ -446,6 +482,9 @@ export function createScene(canvas) {
   // místo pro HUD v jednotkách NDC (0..2) – nastavuje main podle rozvržení
   let hudPad = { t: 0.16, b: 0.22, l: 0.04, r: 0.04 };
   const margins = () => hudPad;
+  // další tlačítka HUD mimo pruhy (nabídka vpravo nahoře, Oddálit vpravo dole), v CSS pixelech: [x0, y0, x1, y1]
+  let hudRects = [];
+  const rectHit = q => { const px = (q.x + 1) / 2 * W0, py = (1 - q.y) / 2 * H0; for (const r of hudRects) if (px >= r[0] - 6 && px <= r[2] + 6 && py >= r[1] - 6 && py <= r[3] + 6) return true; return false; };
   function setMode(mode) { cam.mode = mode; cam.zoom = 1; cam.panX = cam.panZ = 0; }
   function followYaw(k) {
     const o = balls[k]; if (!c) return 0;
@@ -461,61 +500,145 @@ export function createScene(canvas) {
     if (Math.abs(fx) + Math.abs(fz) < 1e-3) return 0;
     return Math.atan2(-fx, -fz);
   }
-  // Cesta z míčku k jamce podle vzdálenostního pole: body do délky 8 políček (celá cesta, když je jamka blíž).
-  function pathAhead(o) {
+  // Cesta z míčku k jamce podle vzdálenostního pole: body do délky maxLen políček (celá cesta, když je jamka blíž).
+  function pathAhead(o, maxLen) {
     const pts = []; let x = Math.floor(o.x), y = Math.floor(o.y), len = 0, px = o.x, py = o.y, reached = false;
     const inside = (X, Y) => X >= 0 && Y >= 0 && X < c.W && Y < c.H;
-    for (let s = 0; s < 16 && len < 8; s++) {
+    for (let s = 0; s < 80 && len < maxLen; s++) {
       let best = null;
       for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const X = x + a, Y = y + b; if (!inside(X, Y)) continue; const d = c.df[Y * c.W + X]; if (d < 1e8 && (!best || d < best.d)) best = { d, X, Y }; }
       if (!best || (best.X === x && best.Y === y)) { reached = c.df[y * c.W + x] === 0 || Math.hypot(c.cup[0] - px, c.cup[1] - py) < 1.2; break; }
       x = best.X; y = best.Y;
-      const qx = x + 0.5, qy = y + 0.5; len += Math.hypot(qx - px, qy - py); px = qx; py = qy; pts.push([qx, qy]);
+      const qx = x + 0.5, qy = y + 0.5; len += Math.hypot(qx - px, qy - py); px = qx; py = qy; pts.push([qx, qy, len]);
       if (best.d === 0) { reached = true; break; }
     }
-    if (reached) pts.push([c.cup[0], c.cup[1]]);
+    if (reached) pts.push([c.cup[0], c.cup[1], len + Math.hypot(c.cup[0] - px, c.cup[1] - py)]);
     return { pts, reached };
   }
-  // Záběr za míčkem: míček v dolní třetině volné plochy, před ním cesta k jamce (a vlajka, když je jamka do ~8 políček).
+  // Záběr za míčkem: míček v dolní třetině volné plochy (mezi HUD nahoře a panelem dole), před ním cesta k jamce.
+  // Nejdřív se zkusí celá cesta + jamka + špička praporku; když se při nejvzdálenější přijatelné kameře nevejde,
+  // zkracuje se cesta (14, 11, 8 políček), jamka se vynechá a nikdy nic nepřesáhne volnou plochu.
   function fitBall(k) {
     if (!c) return;
-    const o = balls[k], yaw = cam.want ? cam.want.yaw : 0, pitch = aspect < 1 ? 1.12 : 1.0;
-    const { pts, reached } = pathAhead(o), m = margins();
+    const o = balls[k], pitch = aspect < 1 ? 1.12 : 1.0, dMax = aspect < 1 ? 24 : 25;
+    const yaw1 = cam.want ? (cam.want.base != null ? cam.want.base : cam.want.yaw) : 0;
+    // kandidáti na natočení: po směru cesty (jako dosud), pak přímo k jamce, pak něco mezi (vejde se víc, hlavně na výšku)
+    const yawCup = Math.atan2(-(c.cup[0] - o.x), -(c.cup[1] - o.y)), dy = Math.atan2(Math.sin(yawCup - yaw1), Math.cos(yawCup - yaw1));
+    const yaws = [yaw1, yaw1 + dy / 2, yaw1 + dy];
+    const crit = v => { v.crit = true; return v; };
+    const YBS = [0.3, 0.12, 0.5, 0.7];                   // kam do volné plochy postavit míček (od spodu); další hodnoty se zkusí, když se jamka nevejde
+    const full = pathAhead(o, 80), m = margins();
     const gh = (x, y) => J.surf(c, x, y).h, ty = gh(o.x, o.y);
-    const P = pts.map(p => new THREE.Vector3(p[0], gh(p[0], p[1]) + 0.3, p[1]));
-    if (reached) P.push(new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]) + 1.45, c.cup[1]));
-    P.push(new THREE.Vector3(o.x, ty + 2 * J.R + 0.1, o.y));
     const ball = new THREE.Vector3(o.x, ty + J.R, o.y), tmp = new THREE.Vector3();
-    const f = [-Math.sin(yaw), -Math.cos(yaw)];
-    const ylo = -1 + m.b + 0.05, yhi = 1 - m.t - 0.05, xl = -1 + m.l + 0.05, xr = 1 - m.r - 0.05, yb = ylo + (yhi - ylo) * 0.3;
+    const ylo = -1 + m.b + 0.05, yhi = 1 - m.t - 0.05, xl = -1 + m.l + 0.05, xr = 1 - m.r - 0.05;
     applyOffset();
-    const put = (d, s) => { const tx = o.x + f[0] * s, tz = o.y + f[1] * s; camera.position.copy(camPos(tx, ty, tz, d, yaw, pitch)); camera.lookAt(tx, ty, tz); camera.updateMatrixWorld(); camera.updateProjectionMatrix(); };
-    let lo = 4.8, hi = 42, best = null;
-    for (let it = 0; it < 18; it++) {
-      const d = (lo + hi) / 2;
-      let sl = 0, sh = 18;
-      for (let j = 0; j < 16; j++) { const s = (sl + sh) / 2; put(d, s); if (tmp.copy(ball).project(camera).y > yb) sl = s; else sh = s; }
-      const s = (sl + sh) / 2; put(d, s);
-      let ok = true;
-      for (const p of P) { const q = tmp.copy(p).project(camera); if (q.z > 1 || q.x < xl || q.x > xr || q.y > yhi || q.y < ylo) { ok = false; break; } }
-      if (ok) { hi = d; best = { d, s }; } else lo = d;
+    const cupB = new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]), c.cup[1]), cupT = new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]) + 1.45, c.cup[1]);
+    const inBand = q => q.z < 1 && q.x >= xl && q.x <= xr && q.y <= yhi && q.y >= ylo, inFree = q => inBand(q) && !rectHit(q), onScr = q => q.z < 1 && Math.abs(q.x) < 1 && Math.abs(q.y) < 1;
+    // jamka mimo seznam bodů: buď je (s praporkem) celá ve volné ploše, nebo je celá mimo obrazovku; nikdy napůl pod HUD / uříznutá
+    const cupOk = () => { const a = tmp.copy(cupB).project(camera), b = new THREE.Vector3().copy(cupT).project(camera); return onScr(a) ? inFree(a) && inFree(b) : !onScr(b) || inFree(b); };
+    // Pro dané natočení a polohu míčku najde nejmenší vzdálenost kamery, při které jsou všechny body ve volné ploše;
+    // když jamka není mezi body, hledá se (od té vzdálenosti nahoru) takové d, kdy je jamka celá ve volné ploše nebo celá mimo obrazovku.
+    const solve = (P, yaw, cupIn, ybf) => {
+      const yb = ylo + (yhi - ylo) * ybf, f = [-Math.sin(yaw), -Math.cos(yaw)];
+      const put = (d, s) => { const tx = o.x + f[0] * s, tz = o.y + f[1] * s; camera.position.copy(camPos(tx, ty, tz, d, yaw, pitch)); camera.lookAt(tx, ty, tz); camera.updateMatrixWorld(); camera.updateProjectionMatrix(); };
+      const at = d => {
+        let sl = 0, sh = 24;
+        for (let j = 0; j < 16; j++) { const s = (sl + sh) / 2; put(d, s); if (tmp.copy(ball).project(camera).y > yb) sl = s; else sh = s; }
+        const s = (sl + sh) / 2; put(d, s);
+        let okP = true;
+        for (const p of P) { const q = tmp.copy(p).project(camera); if (p.crit ? !inFree(q) : !inBand(q)) { okP = false; break; } }   // křehké body (míček, jamka) i mimo tlačítka; cesta jen v pruhu
+        return { okP, s };
+      };
+      if (!at(dMax).okP) return null;
+      let lo = 4.8, hi = dMax;
+      for (let it = 0; it < 18; it++) { const d = (lo + hi) / 2; if (at(d).okP) hi = d; else lo = d; }
+      for (let i = 0; i <= 12; i++) {
+        const d = hi + (dMax - hi) * i / 12, r = at(d);
+        if (r.okP && (cupIn || cupOk())) return { d, s: r.s, yaw, off: [f[0] * r.s, f[1] * r.s] };
+      }
+      return null;
+    };
+    let best = null;
+    for (const cut of [Infinity, 20, 17, 14, 11, 8]) {
+      const P = [crit(new THREE.Vector3(o.x, ty + 2 * J.R + 0.1, o.y))];
+      let complete = true;
+      for (const p of full.pts) { if (p[2] > cut) { complete = false; break; } P.push(new THREE.Vector3(p[0], gh(p[0], p[1]) + 0.3, p[1])); }
+      if (complete && full.reached) P.push(crit(new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]) + 1.45, c.cup[1])), crit(new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]), c.cup[1])));
+      const cupIn = complete && full.reached;
+      for (const yw of yaws) { for (const ybf of YBS) { best = solve(P, yw, cupIn, ybf); if (best) { best.how = `cut ${cut} yaw ${yaws.indexOf(yw)} yb ${ybf}`; break; } } if (best) break; }
+      if (best) break;
     }
-    if (!best) best = { d: hi, s: 4 };
-    cam.fr = { off: [f[0] * best.s, f[1] * best.s], dist: best.d, pitch };
+    if (!best) {                                         // nouzově: prvních ~6 políček, nikdy větší záběr než dMax
+      const P = [crit(new THREE.Vector3(o.x, ty + 2 * J.R + 0.1, o.y))];
+      for (const p of full.pts) { if (p[2] > 6) break; P.push(new THREE.Vector3(p[0], gh(p[0], p[1]) + 0.3, p[1])); }
+      for (const yw of yaws) { for (const ybf of YBS) { best = solve(P, yw, false, ybf); if (best) { best.how = `nouze6 yaw ${yaws.indexOf(yw)} yb ${ybf}`; break; } } if (best) break; }
+      best = best || { d: dMax, s: 4, yaw: yaw1, off: [-Math.sin(yaw1) * 4, -Math.cos(yaw1) * 4] };
+    }
+    if (cam.want) cam.want.yaw = best.yaw;
+    cam.fr = { off: best.off, dist: best.d, pitch, how: best.how || "FALLBACK dMax" };
   }
   function frameBall(k, snap) {
     cam.follow = k; const o = balls[k];
-    cam.want = { yaw: followYaw(k) };
-    if (snap) { cam.yaw = cam.want.yaw; cam.tx = o.x; cam.tz = o.y; }
-    fitBall(k);
-    if (snap) cam.cur = null;
+    const base = followYaw(k);
+    cam.want = { yaw: base, base };
+    fitBall(k);                                          // může natočit kameru k jamce (cam.want.yaw)
+    if (snap) { cam.yaw = cam.want.yaw; cam.tx = o.x; cam.tz = o.y; cam.cur = null; }
   }
+  // Místa pro míčky vedle jamky: nejdřív vlevo (od praporku), pak vpravo, pak dopředu; jen na rovném trávníku a mimo zeď.
+  function cupSpots(n) {
+    const cupR = J.CUP_R * (c.mod === "velka" ? 1.45 : c.mod === "mala" ? 0.8 : 1), d = cupR + J.R + 0.34, ch = J.surf(c, c.cup[0], c.cup[1]).h, out = [];
+    const okAt = a => {
+      const x = c.cup[0] + Math.cos(a) * d, z = c.cup[1] + Math.sin(a) * d;
+      for (const [ex, ez] of [[0, 0], [J.R, 0], [-J.R, 0], [0, J.R], [0, -J.R]]) if (J.where(c, x + ex, z + ez) !== J.FLOOR) return null;
+      if (Math.abs(J.surf(c, x, z).h - ch) > 0.15) return null;
+      return [x, z, a];
+    };
+    for (const a of [Math.PI, 0, Math.PI / 2, Math.PI * 0.75, Math.PI * 0.25, -Math.PI * 0.75]) {   // dozadu doprava nikdy: tam visí látka praporku
+      if (out.length >= n) break;
+      const q = okAt(a); if (!q) continue;
+      if (out.every(o => Math.abs(Math.atan2(Math.sin(o[2] - a), Math.cos(o[2] - a))) > 1.0)) out.push(q);
+    }
+    while (out.length < n) out.push([c.cup[0], c.cup[1], 0, 1]);      // nouzově v jamce (zapuštěný)
+    return out;
+  }
+  let cupSp = null, cupFitD = 6;
+  function cupPts(sp) {
+    const [cx, cz] = c.cup, ch = J.surf(c, cx, cz).h, pts = [];
+    pts.push(new THREE.Vector3(cx, ch, cz), new THREE.Vector3(cx, ch + 1.4, cz));
+    for (const [dx, dz] of [[2.8, 1.9], [-2.8, 1.9], [2.8, -1.5], [-2.8, -1.5]]) pts.push(new THREE.Vector3(cx + dx, ch, cz + dz));
+    const list = sp || cupSpots(2);
+    for (const q of list) { const h = J.surf(c, q[0], q[1]).h; pts.push(new THREE.Vector3(q[0], h + 2 * J.R + 0.12, q[1]), new THREE.Vector3(q[0] - J.R, h, q[1] + J.R), new THREE.Vector3(q[0] + J.R, h, q[1] + J.R)); }
+    return pts;
+  }
+  function placeCupCam(d) {
+    const ch = J.surf(c, c.cup[0], c.cup[1]).h;
+    applyOffset();
+    camera.position.copy(camPos(c.cup[0], ch, c.cup[1], d, 0, 1.0)); camera.lookAt(c.cup[0], ch, c.cup[1]); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+  }
+  function holeCam() {
+    applyOffset();
+    camera.position.copy(camPos(holeFit.tx, holeFit.ty, holeFit.tz, holeFit.dist, 0, holeFit.pitch)); camera.lookAt(holeFit.tx, holeFit.ty, holeFit.tz); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+  }
+  // vzdálenost kamery u jamky, při které jsou jamka, praporek a míčky celé ve volné ploše (mezi HUD nahoře a panelem dole)
+  function fitCupDist(pts, m) {
+    m = m || margins();
+    let lo = 3.5, hi = 40; const tmp = new THREE.Vector3();
+    for (let it = 0; it < 22; it++) {
+      const d = (lo + hi) / 2; placeCupCam(d);
+      let ok = true;
+      for (const p of pts) { const q = tmp.copy(p).project(camera); if (q.z > 1 || q.x < -1 + m.l + 0.04 || q.x > 1 - m.r - 0.04 || q.y < -1 + m.b + 0.04 || q.y > 1 - m.t - 0.04 || rectHit(q)) { ok = false; break; } }
+      if (ok) hi = d; else lo = d;
+    }
+    return hi;
+  }
+  function fitCup() { if (c) cupFitD = fitCupDist(cupPts(cupSp)); }
   function showCup(items) {
-    const holed = items.filter(i => i.holed);
-    holed.forEach((it, n) => sinkBall(it.k, c.cup[0] + (holed.length === 1 ? 0 : (n ? 1 : -1) * J.R * 1.05), c.cup[1], it.face || "happy"));
+    const holed = items.filter(i => i.holed), sp = cupSpots(holed.length);
+    cupSp = sp;
+    holed.forEach((it, n) => sinkBall(it.k, sp[n][0], sp[n][1], it.face || "happy", sp[n][3] ? -J.R * 0.62 : 0));
     for (const it of items.filter(i => !i.holed)) { setBall(it.k, { x: it.x, y: it.y, on: true, in: false }, true); setFace(it.k, it.face || "sad"); }
     if (holed.length) burst(c.cup[0], c.cup[1], "jamka");
-    setMode("cup");
+    setMode("cup"); fitCup();
   }
   function updateCam(dt) {
     let tx, ty, tz, dist, yaw, pitch;
@@ -527,7 +650,7 @@ export function createScene(canvas) {
       if (cam.want) { let d = cam.want.yaw - cam.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; cam.yaw += d * (1 - Math.pow(0.01, dt)); }
       tx = cam.tx + fr.off[0] + cam.panX; tz = cam.tz + fr.off[1] + cam.panZ; ty = J.surf(c, cam.tx, cam.tz).h; dist = fr.dist * cam.zoom; yaw = cam.yaw; pitch = fr.pitch;
     } else if (cam.mode === "cup") {
-      tx = c.cup[0] + cam.panX; tz = c.cup[1] + cam.panZ; ty = J.surf(c, c.cup[0], c.cup[1]).h; dist = (aspect < 1 ? 5.6 : 4.6) * cam.zoom; yaw = toYaw0(); pitch = 1.0;
+      tx = c.cup[0] + cam.panX; tz = c.cup[1] + cam.panZ; ty = J.surf(c, c.cup[0], c.cup[1]).h; dist = cupFitD * cam.zoom; yaw = toYaw0(); pitch = 1.0;
     } else {
       tx = holeFit.tx + cam.panX; ty = holeFit.ty; tz = holeFit.tz + cam.panZ; dist = holeFit.dist * cam.zoom; pitch = holeFit.pitch; yaw = toYaw0();
     }
@@ -575,7 +698,7 @@ export function createScene(canvas) {
   let W0 = 1, H0 = 1, last = performance.now(), running = true;
   function resize() {
     const r = canvas.getBoundingClientRect(); W0 = Math.max(1, r.width); H0 = Math.max(1, r.height);
-    renderer.setSize(W0, H0, false); aspect = W0 / H0; camera.aspect = aspect; camera.clearViewOffset(); camera.updateProjectionMatrix(); fitHole(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow);
+    renderer.setSize(W0, H0, false); aspect = W0 / H0; camera.aspect = aspect; camera.clearViewOffset(); camera.updateProjectionMatrix(); fitHole(); redecorate(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow); if (cam.mode === "cup") fitCup();
   }
   function frame(now) {
     if (!running) return;
@@ -610,7 +733,7 @@ export function createScene(canvas) {
       const m = parts[i], u = m.userData;
       m.position.add(u.v); u.v.y -= 0.004; u.life -= dt * 1.2; m.rotation.x += 0.2; m.rotation.y += 0.13;
       m.material.opacity = Math.max(0, u.life);
-      if (u.life <= 0) { fx.remove(m); m.geometry.dispose(); parts.splice(i, 1); }
+      if (u.life <= 0) { fx.remove(m); m.material.dispose(); parts.splice(i, 1); }
     }
     updateCam(dt);
     renderer.render(scene, camera);
@@ -623,10 +746,11 @@ export function createScene(canvas) {
     setHole, setTraps, dropTraps, sinkBall, showCup, setBlades, fadeOwn, setGhost, setBall, setFace, turnRing, setAim, burst,
     setMode, frameBall, snapCam, groundAt, toScreen, playFrames, skip, resize,
     get mode() { return cam.mode; }, cam, balls, get busy() { return !!anim; },
-    setHudPad(p) { hudPad = p; fitHole(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow); },
+    setHudRects(r) { hudRects = r || []; },
+    setHudPad(p) { hudPad = p; fitHole(); redecorate(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow); if (cam.mode === "cup") fitCup(); },
     zoomBy(f) { cam.zoom = Math.max(0.45, Math.min(cam.mode === "ball" ? 1.7 : 1.5, cam.zoom * f)); },
     pan(dx, dz) { cam.panX += dx; cam.panZ += dz; },
     stop() { running = false; },
-    renderer, camera,
+    renderer, camera, root: scene,
   };
 }

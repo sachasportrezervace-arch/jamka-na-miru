@@ -1,5 +1,23 @@
 # Worklog – Jamka na míru
 
+## 2026-10-31 ~23:30 – 2. kolo design-eye (NE-PROFI): blokující vady opraveny (session účtu P)
+Opraveno (soubor):
+1. Kamera při úderu (`src/scene.js` `fitBall`, `pathAhead`, `cupSpots`): míček, jamka a špička praporku se vejdou do volné plochy mezi horní HUD a dolní panel. `fitBall` zkouší celou cestu + jamku + praporek při kameře do 25 (na výšku 24), pak zkracuje cestu (20, 17, 14, 11, 8 políček), zkouší natočení (po cestě, k jamce, mezi) a polohu míčku ve volné ploše (30, 12, 50, 70 %). Daleká jamka je buď celá ve volné ploše, nebo celá mimo obrazovku, nikdy napůl pod HUD. Tlačítka mimo pruhy (nabídka, Oddálit) předává `main.js layout()` přes `setHudRects`.
+2. Pasti (`src/sim.js`): `TRAPS[*].clear/foot` = viditelný poloměr (mlýnek 1,03, louže 0,8, krtinec 0,9 se zmenšenou sukní `KOPEC_R` 0,9 / `KOPEC_H` 0,3, pérovačka: obrys 0,3 + celá délka stěny). `trapValid` vzorkuje 48 bodů po obvodu. Překryv: `placeTrap` při dokončení dvojice posune past hráče `o` na nejbližší platné nepřekrývající se místo (spirála po dvacetinách, poloměr 3 políčka, jen součty a násobení), jinak propadne (`pend.o` false, hláška). Výsledek nezávisí na pořadí příchodu. Stav má `moved` (toast „Jedna se kousek posunula“).
+3. Výsledek jamky na desktopu (`scene.js` `showCup`, `fitCupDist`, `decorate`): míčky stojí vedle jamky na trávě (vlevo / vpravo / dopředu, nikdy za tyčí vpravo, kde visí látka), kamera se dopočítá projekcí (jamka, praporek, míčky a kus okolí ve volné ploše), ozdoby se vybírají mimo trať a mimo záběr výsledku, ručník pryč.
+4. Mantinely: sloupky jen v rozích (kde zeď mění směr), menší. Zima: boční stěna tmavá břidlicová `#566F8C`, vnitřní bok tmavší červená; pláž: tmavší bok `#B58546`.
+5. HUD desktop ×1,3 (`index.html`, blok `@media (min-width: 561px)`): štítky 18 px / 15,5 px, součet 31 px, pilulka 23 px; „1/6“ stejným písmem a řezem (`font: inherit`). Konec partie: tmavší překryv `rgba(30,33,44,.46)` a blur 1,5 px. „Jamka remíza“ je „Remíza na jamce“.
+Podezření seed: místní režim seed z `?mistni=` bere správně (`room.id = "mistni-" + seed`, seed `hashStr(room.id + ":" + gi)`, online `room.id` je různé). Seedy 3/7/11 mají různé jamky (pary 3,3,3,4,3,2 / 3,3,4,2,4,4 / 3,3,4,3,4,4); shoda parů u 7 a 11 je náhoda malého receptu. První jamka přesto zpestřena: `plan` dává i=0 3 nebo 4 nohy (dřív vždy 3) → tvar (zatáčky, rys, rozměr) se liší ve 20 z 20 seedů (test chce aspoň 15).
+Crash WebKit iPhone na šířku, seed 3: nezopakoval se (4 běhy `tests/pamet.cjs`, celá partie, 53–58 s). Nalezen ale únik: duch pasti (`setGhost`) se při každém pohybu prstu znovu stavěl a starý se jen odebral, bez `dispose` (150 přestavění = +357 geometrií v rendereru, ověřeno testem vráceným do staré verze). Při tahu prstem to jsou stovky geometrií za pár sekund, což je věrohodná příčina pádu. Opraveno `disposeTree` v `setGhost`, `clear` uvolňuje i materiály, částice sdílejí geometrii. Po opravě 150 přestavění = +0.
+Testy (server `python -m http.server 8808`, příkazy z kořene hry, exit kódy z `runall`):
+- `node tests/sim.test.cjs` → exit 0, 25/25 PASS (nové: velikost pastí = kreslení, nic nepřečnívá (1664 míst), překryv posunut 110×, propadnutí pevný případ, nezávislost na pořadí, první jamka 20/20, seed z `?mistni=`).
+- `node tests/kamera.cjs 3 7 11` (nový) → exit 0, 72 záběrů (Chromium 1440×900 + WebKit iPhone 13 na výšku), míček vždy ve volné ploše a ≥12 px, jamka+praporek ve volné ploše při cestě ≤12 políček (12 záběrů), u dalekých (60) nikdy napůl pod HUD. Před opravou 18 vad na dvou seedech.
+- `node tests/pamet.cjs 3` ×3 → exit 0, geometrie stabilně 30–47, osiřelých 0.
+- `node tests/duel.cjs` → exit 0, 36/36 PASS (celá partie, 26 úderů, 3 prohlížeče bit po bitu).
+- `node tests/perf.cjs` → exit 0, WebKit iPhone 13 emulace 15–17 FPS (software WebGL), `JM.hole` 6 jamek 119–317 ms.
+- `SEED=7 node tests/rendery.cjs` → exit 0; `SEED=3 KRATKE=1` a `SEED=11 KRATKE=1` → exit 0. Rendery `design/a-s7-*`, `a-s3-*`, `a-s11-*` ({desktop,iphone}-{past,uder,vysledek[,konec]}). Staré `a-desktop-*`, `a-iphone-*` jsou zastaralé.
+NEOVĚŘENO: skutečný iPhone (FPS, dotyky, pád při tažení), zvuk, fullscreen, pinch zoom, iPhone na šířku v kameře (jen `pamet`, bez `kamera`), kamera u jamky když je hotová jen jedna z nich (druhý míček mimo záběr), všechny kombinace pastí a modifikátorů, nový rozestup ozdob na všech třech tématech za pohybu; nový kolo design-eye zatím neproběhlo.
+
 ## 2026-10-31 ~22:00 – návrh A vybrán, opravy design-eye, testy (session účtu P)
 Rozhodnutí: návrh A („čistý stůl“) je jediný. Návrh B odstraněn (CSS `.navrh-b`, `#side`, `?navrh`, `design/b-*`), `body.navrh-a` je výchozí.
 Hotovo (opravy v pořadí zadání):
