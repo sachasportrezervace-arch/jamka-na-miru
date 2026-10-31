@@ -1,0 +1,624 @@
+// Jamka na míru – UI, místnost a přehrávání. Stav hry = přehrání deníků obou hráčů (sim.js), nic dalšího.
+import * as Net from "./net.js";
+import { createScene, PLAYER } from "./scene.js";
+const J = self.JM;
+const $ = id => document.getElementById(id);
+const Q = new URLSearchParams(location.search);
+const LOCAL = Q.has("mistni");                                   // hra na jednom zařízení (testy, návrhy)
+const BASE = location.origin + location.pathname;
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const clampName = s => (s || "").replace(/\s+/g, " ").trim().slice(0, 16);
+const sameName = (a, b) => !!a && !!b && a.toLocaleLowerCase("cs") === b.toLocaleLowerCase("cs");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const other = J.other;
+
+const sc = createScene($("cv"));
+let room = null;                 // { id, meta, seat, docs: {x, o}, w, local }
+let G = null, shown = 0, queue = [], busy = false, gameKey = "", holeOn = -1, fresh = true;
+const ui = { sel: null, ghost: null, rot: 0, aim: null, camAuto: true };
+
+// ---------- toast ----------
+let toastT = 0;
+function toast(t, ms = 2600) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("on"), ms); }
+
+// ---------- zvuk: syntetizovaný, zapne se po prvním dotyku ----------
+const sound = (() => {
+  let ac = null, on = Net.store.get("jm-sound") !== "0";
+  const ctx = () => { if (!ac) try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch { } if (ac && ac.state === "suspended") ac.resume(); return ac; };
+  addEventListener("pointerdown", ctx, { once: true });
+  const tone = (f, d, type = "sine", v = 0.2, slide = 0) => {
+    const a = on && ctx(); if (!a) return;
+    const o = a.createOscillator(), g = a.createGain(), t = a.currentTime;
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, f * slide), t + d);
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+    o.connect(g).connect(a.destination); o.start(t); o.stop(t + d + 0.02);
+  };
+  const noise = (d, v = 0.25, f = 900) => {
+    const a = on && ctx(); if (!a) return;
+    const b = a.createBuffer(1, Math.floor(a.sampleRate * d), a.sampleRate), ch = b.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / ch.length);
+    const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
+    fl.type = "lowpass"; fl.frequency.value = f; g.gain.value = v; s.buffer = b; s.connect(fl).connect(g).connect(a.destination); s.start();
+  };
+  return {
+    get on() { return on; }, toggle() { on = !on; Net.store.set("jm-sound", on ? "1" : "0"); return on; },
+    putt: p => tone(380 + p * 200, 0.08, "triangle", 0.25 + p * 0.15, 0.6),
+    wall: v => tone(220 + Math.min(1, v / 200) * 160, 0.05, "square", 0.05 + Math.min(0.1, v / 2500)),
+    spring: () => tone(300, 0.25, "sine", 0.22, 3.2),
+    mill: () => tone(160, 0.09, "sawtooth", 0.08, 0.7),
+    splash: () => { noise(0.45, 0.35, 1400); tone(500, 0.25, "sine", 0.12, 0.4); },
+    cup: () => { tone(660, 0.12, "sine", 0.2); setTimeout(() => tone(990, 0.22, "sine", 0.18), 110); },
+    trap: () => { tone(520, 0.1, "triangle", 0.15, 1.5); setTimeout(() => tone(780, 0.14, "triangle", 0.13), 90); },
+    lip: () => tone(700, 0.07, "triangle", 0.12, 0.8),
+  };
+})();
+$("bSound").addEventListener("click", () => { const on = sound.toggle(); paintSound(); toast(on ? "Zvuk zapnutý." : "Zvuk vypnutý."); });
+function paintSound() { $("bSound").classList.toggle("off", !sound.on); $("bSound").setAttribute("aria-label", sound.on ? "Vypnout zvuk" : "Zapnout zvuk"); }
+paintSound();
+
+// ---------- celá obrazovka / plocha na iPhonu ----------
+const platform = (() => {
+  const ua = navigator.userAgent, iphone = /iPhone|iPod/.test(ua), ipad = /iPad/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const r = document.documentElement, api = !!(r.requestFullscreen || r.webkitRequestFullscreen) && document.fullscreenEnabled !== false;
+  return { ios: iphone || ipad, canFs: api && !iphone, standalone: !!navigator.standalone || matchMedia("(display-mode: standalone)").matches };
+})();
+(() => {
+  const btn = $("bFs");
+  const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if (platform.canFs && !platform.standalone) {
+    btn.hidden = false;
+    btn.addEventListener("click", async () => {
+      try { if (isFs()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document); else { const r = document.documentElement; await (r.requestFullscreen || r.webkitRequestFullscreen).call(r, { navigationUI: "hide" }); } }
+      catch { toast("Prohlížeč celou obrazovku nepustil."); }
+    });
+    for (const ev of ["fullscreenchange", "webkitfullscreenchange"]) document.addEventListener(ev, () => { btn.classList.toggle("on", isFs()); setTimeout(layout, 60); });
+  }
+  if (platform.ios && !platform.standalone && Net.store.get("jm-ioshint") !== "1") {
+    $("iosHint").hidden = false;
+    $("iosHintX").addEventListener("click", () => { $("iosHint").hidden = true; Net.store.set("jm-ioshint", "1"); });
+  }
+})();
+
+// ---------- rozvržení: kolik místa zabírá HUD (pro rámování kamery) ----------
+function layout() {
+  sc.resize();
+  const h = innerHeight, top = $("topbar").getBoundingClientRect().bottom, bot = h - $("dock").getBoundingClientRect().top;
+  const side = $("side") && getComputedStyle($("side")).display !== "none" ? $("side").getBoundingClientRect() : null;
+  document.body.style.setProperty("--dockH", ($("dock").offsetHeight && getComputedStyle($("dock")).opacity !== "0" ? $("dock").offsetHeight + 8 : 0) + "px");
+  sc.setHudPad({ t: Math.min(0.5, (top + 8) / h * 2), b: Math.min(0.7, (bot + 8) / h * 2), l: side ? (side.right + 8) / innerWidth * 2 : 0.04, r: 0.04 });
+}
+addEventListener("resize", () => setTimeout(layout, 30));
+
+// ---------- jména a pomocné texty ----------
+const nameOf = p => room && room.meta ? (p === "x" ? room.meta.g.a : (room.meta.g.b || "Soupeř")) : p;
+const me = () => room ? (room.local ? localMe() : room.seat) : null;
+function localMe() { if (!G) return "x"; if (G.ph === "trap") return G.pend.x === null ? "x" : "o"; return G.p || "x"; }
+const isMe = p => !room.local && p === room.seat;
+const who = p => room.local ? nameOf(p) : isMe(p) ? "Ty" : nameOf(p);
+const course = () => G && G.ph !== "end" ? J.hole(G.seed, G.hole) : null;
+const rel = n => n === 0 ? "par" : n > 0 ? "+" + n : "−" + -n;
+function totals(p) {
+  if (!G) return { s: 0, par: 0 };
+  let s = 0, par = 0;
+  G.sc[p].forEach((v, i) => { s += v; par += G.pars[i]; });
+  return { s, par };
+}
+const ballSvg = (p, face = "idle") => `<svg viewBox="0 0 40 40" class="bi" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="${PLAYER[p].ball}"/><circle cx="20" cy="20" r="18" fill="none" stroke="${PLAYER[p].deep}" stroke-width="2.4" opacity=".5"/>${face === "happy"
+  ? '<path d="M11 18q3-4 6 0M23 18q3-4 6 0" stroke="#1E1B2E" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M13 24q7 8 14 0z" fill="#1E1B2E"/>'
+  : '<ellipse cx="14" cy="18" rx="4.3" ry="4.8" fill="#fff"/><ellipse cx="26" cy="18" rx="4.3" ry="4.8" fill="#fff"/><circle cx="14.5" cy="18.8" r="2.3" fill="#1E1B2E"/><circle cx="26.5" cy="18.8" r="2.3" fill="#1E1B2E"/><path d="M15 26q5 4 10 0" stroke="#1E1B2E" stroke-width="2.4" fill="none" stroke-linecap="round"/>'}</svg>`;
+const TRAP_ICON = {
+  mlyn: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="21" fill="#F25F5C" opacity=".14"/><g transform="rotate(20 24 24)"><rect x="22" y="5" width="4" height="38" rx="2" fill="#F25F5C"/><rect x="5" y="22" width="38" height="4" rx="2" fill="#F25F5C"/></g><circle cx="24" cy="24" r="6.5" fill="#F6E7C8" stroke="#1E1B2E" stroke-width="2"/></svg>',
+  louze: '<svg viewBox="0 0 48 48"><path d="M7 27c0-8 9-12 17-12s18 3 18 11-9 12-18 12S7 35 7 27z" fill="#6FA6C4"/><path d="M15 25q4-4 9-3" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/><ellipse cx="30" cy="24" rx="6" ry="4" fill="#FFD23F"/><circle cx="34" cy="19" r="3.2" fill="#FFD23F"/><path d="M37 19l3 .8-3 1z" fill="#FF8A3D"/></svg>',
+  stena: '<svg viewBox="0 0 48 48"><g transform="rotate(-18 24 24)"><rect x="6" y="19" width="36" height="10" rx="2" fill="#fff" stroke="#1E1B2E" stroke-width="2"/><rect x="12" y="19" width="6" height="10" fill="#F25F5C"/><rect x="24" y="19" width="6" height="10" fill="#F25F5C"/><rect x="36" y="19" width="5" height="10" fill="#F25F5C"/></g><path d="M8 40q3-3 6 0t6 0" stroke="#9AA4B2" stroke-width="2.4" fill="none"/></svg>',
+  kopec: '<svg viewBox="0 0 48 48"><path d="M4 38q20-32 40 0z" fill="#8C6142"/><circle cx="24" cy="19" r="7" fill="#3B3346"/><circle cx="21.3" cy="17.5" r="1.6" fill="#fff"/><circle cx="26.7" cy="17.5" r="1.6" fill="#fff"/><circle cx="24" cy="21.5" r="2" fill="#FF8FA3"/></svg>',
+};
+
+// ---------- HUD ----------
+function paintHud() {
+  if (!room || !G) return;
+  for (const p of ["x", "o"]) {
+    const t = totals(p), cur = G.ph === "play" || G.ph === "trap" ? G.str[p] : 0;
+    const el = $("chip" + p.toUpperCase());
+    const joined = p === "x" || !!room.meta.so || room.local;
+    el.classList.toggle("turn", G.ph === "play" && G.p === p);
+    el.innerHTML = `${ballSvg(p, G.ph === "end" && G.win === p ? "happy" : "idle")}<span class="nm">${esc(nameOf(p))}${isMe(p) ? ' <i>ty</i>' : ""}</span>
+      <span class="tot"><b>${t.s}</b><em>${t.par ? rel(t.s - t.par) : "&nbsp;"}</em></span>
+      ${joined ? (G.ph === "play" ? `<span class="cur">${G.done[p] ? "v jamce" : cur ? cur + ". rána" : "na odpališti"}</span>` : "") : '<span class="cur">čeká na přijetí</span>'}`;
+  }
+  const c = course();
+  if (c) {
+    const m = J.MODS[c.mod];
+    $("holePill").innerHTML = `<b>Jamka ${G.hole + 1}<span>/6</span></b><span class="par">Par ${c.par}</span>${c.mod !== "klid" ? `<span class="mod">${esc(m.name)}</span>` : ""}`;
+  } else $("holePill").innerHTML = `<b>Konec partie</b>`;
+  paintCard();
+}
+function paintCard() {
+  const rows = ["x", "o"].map(p => `<tr class="r-${p}"><th>${ballSvg(p)}<span>${esc(nameOf(p))}</span></th>${[0, 1, 2, 3, 4, 5].map(i => {
+    const v = G.sc[p][i], par = G.pars[i];
+    const cls = v == null ? "" : v === 1 ? "eso" : v < par ? "pod" : v > par ? "nad" : "par";
+    const live = v == null && i === G.hole && G.ph === "play" && G.str[p] ? `<i>${G.str[p]}</i>` : "";
+    return `<td class="${cls}${i === G.hole && G.ph !== "end" ? " now" : ""}">${v == null ? live : v}</td>`;
+  }).join("")}<td class="sum">${totals(p).s}</td></tr>`).join("");
+  const pars = [0, 1, 2, 3, 4, 5].map(i => `<td${i === G.hole && G.ph !== "end" ? ' class="now"' : ""}>${G.pars[i] != null ? G.pars[i] : i === G.hole && G.ph !== "end" ? J.hole(G.seed, i).par : ""}</td>`).join("");
+  $("card").innerHTML = `<table><thead><tr><th></th>${[1, 2, 3, 4, 5, 6].map(i => `<td>${i}</td>`).join("")}<td class="sum">Σ</td></tr></thead>
+    <tbody><tr class="r-par"><th>Par</th>${pars}<td class="sum">${G.pars.reduce((a, b) => a + b, 0) || ""}</td></tr>${rows}</tbody></table>`;
+}
+// spodní lišta: co teď dělat
+function paintDock() { paintDock0(); requestAnimationFrame(layout); }
+function paintDock0() {
+  const d = $("dock"), m = me(), c = course();
+  d.className = "dock";
+  if (!room || !G) { d.innerHTML = ""; return; }
+  if (busy) { d.innerHTML = `<div class="say">${G.ph === "play" || G.ph === "trap" ? "" : ""}</div>`; d.classList.add("quiet"); return; }
+  if (G.ph === "trap") {
+    const mine = m && G.pend[m];
+    if (m && G.pend[m] === null) {
+      const opts = J.offer(G, m), trailing = J.trailing(G, m);
+      d.classList.add("traps");
+      d.innerHTML = `<div class="say"><b>Postav ${room.local ? esc(nameOf(other(m))) : "soupeři"} past</b><span>${trailing ? "Ztrácíš, tak vybíráš ze tří." : "Tebe nechá být, jen soupeře."}</span></div>
+        <div class="cards">${opts.map(k => `<button class="tc${ui.sel === k ? " on" : ""}" data-k="${k}">${TRAP_ICON[k]}<b>${J.TRAPS[k].name}</b><span>${J.TRAPS[k].desc}</span></button>`).join("")}</div>
+        <div class="row">${ui.sel && J.TRAPS[ui.sel].rot ? '<button class="btn alt" id="bRot">Otočit</button>' : ""}<button class="btn" id="bPlace" ${ui.sel && ui.ghost && ui.ghost.ok ? "" : "disabled"}>${ui.sel ? (ui.ghost && ui.ghost.ok ? "Postavit sem" : "Klepni do dráhy") : "Vyber past"}</button></div>`;
+      d.querySelectorAll(".tc").forEach(b => b.addEventListener("click", () => pickTrap(b.dataset.k)));
+      $("bRot")?.addEventListener("click", () => { ui.rot = (ui.rot + 2) % J.ROT; if (ui.ghost) moveGhost(ui.ghost.x / 20, ui.ghost.y / 20); });
+      $("bPlace").addEventListener("click", placeTrap);
+    } else if (m && mine !== null) {
+      const opp = other(m), joined = room.meta.so || room.local;
+      d.innerHTML = `<div class="say"><b>Past stojí</b><span>${joined ? `Čekáš, až ${esc(nameOf(opp))} postaví past tobě. Pak se odhalí obě.` : `${esc(nameOf(opp))} ještě nepřijal(a) výzvu.`}</span></div>${!joined ? '<div class="row"><button class="btn" id="bShare2">Poslat výzvu znovu</button></div>' : ""}`;
+      $("bShare2")?.addEventListener("click", shareLink);
+    } else d.innerHTML = `<div class="say"><b>Stavějí se pasti</b><span>Přihlížíš. Obě pasti se ukážou naráz.</span></div>`;
+    return;
+  }
+  if (G.ph === "play") {
+    const p = G.p, n = G.str[p] + 1;
+    if (m === p) {
+      d.classList.add("mine");
+      d.innerHTML = `<div class="say"><b>${room.local ? esc(nameOf(p)) + " je na řadě" : "Jsi na řadě"} · ${n}. rána</b><span>Táhni prstem zpátky od míčku a pusť. Čím dál, tím silněji.</span></div>`;
+    } else d.innerHTML = `<div class="say"><b>Hraje ${esc(nameOf(p))}</b><span>${n}. rána · ${room.seat ? "ty jsi další" : "přihlížíš"}</span></div>`;
+    return;
+  }
+  d.innerHTML = "";
+}
+
+// ---------- přehrávání kroků ----------
+function gameInfo() {
+  const dx = room.docs.x || { gi: 0, acts: [] }, dy = room.docs.o || { gi: 0, acts: [] };
+  const gi = Math.min(dx.gi || 0, dy.gi || 0);
+  return { gi, seed: J.hashStr(room.id + ":" + gi), first: gi % 2 ? "o" : "x", logs: { x: (dx.gi || 0) === gi ? dx.acts || [] : [], o: (dy.gi || 0) === gi ? dy.acts || [] : [] } };
+}
+function sync() {
+  if (!room) return;
+  const info = gameInfo(), key = room.id + ":" + info.gi;
+  if (key !== gameKey) { gameKey = key; shown = 0; queue = []; G = null; holeOn = -1; }
+  const r = J.replay(info.seed, info.first, info.logs);
+  if (fresh || !G) {               // první načtení: bez animací, rovnou aktuální stav
+    fresh = false; shown = r.steps.length; G = r.g; enterState(true); return;
+  }
+  for (let i = shown; i < r.steps.length; i++) queue.push(r.steps[i]);
+  shown = r.steps.length;
+  pump();
+}
+async function pump() {
+  if (busy) return;
+  while (queue.length) {
+    busy = true; paintDock();
+    const st = queue.shift();
+    try { await animate(st); } catch (e) { console.error(e); }
+    G = st.g;
+  }
+  busy = false;
+  enterState(false);
+}
+// zobrazení stavu G: jamka, pasti, míčky, kamera, HUD
+function enterState(snap) {
+  if (!G) return;
+  if (G.ph === "end") { paintHud(); paintDock(); showEnd(); return; }
+  hideView();
+  const c = course();
+  if (holeOn !== G.hole) {
+    holeOn = G.hole; sc.setHole(c); sc.setMode("hole"); sc.snapCam(); ui.sel = null; ui.ghost = null;
+    if (!snap) holeIntro(c);
+  }
+  const m = me();
+  sc.setTraps(G.ph === "play" ? G.traps : (m && G.pend[m] ? [G.pend[m]] : []), m, G.n);
+  for (const k of ["x", "o"]) {
+    const b = G.balls[k];
+    const show = G.ph === "play" && (b.on ? !b.in : G.p === k);
+    sc.setBall(k, b.on ? b : { x: c.tee[0], y: c.tee[1], on: true, in: false }, show);
+    sc.setFace(k, "idle");
+  }
+  sc.turnRing(G.ph === "play" ? G.p : null);
+  if (G.ph === "play") {
+    sc.fadeOwn(G.p);
+    if (ui.camAuto) { sc.setMode("ball"); sc.frameBall(G.p, snap); }
+    if (m === G.p) sc.setFace(G.p, "idle");
+  } else { sc.setMode("hole"); sc.setGhost(null); }
+  paintCam(); paintHud(); paintDock();
+  if (G.ph === "trap" && m && G.pend[m] === null && !ui.sel) { const o = J.offer(G, m); if (o.length) pickTrap(o[0], true); }
+}
+function holeIntro(c) {
+  const m = J.MODS[c.mod], el = $("intro");
+  el.innerHTML = `<div class="hi"><span class="no">Jamka ${G.hole + 1}</span><b>Par ${c.par}</b><span class="th">${esc(J.THEME_NAMES[c.th])}</span>${c.mod !== "klid" ? `<p><b>${esc(m.name)}.</b> ${esc(m.desc)}</p>` : ""}</div>`;
+  el.classList.add("on"); clearTimeout(holeIntro.t); holeIntro.t = setTimeout(() => el.classList.remove("on"), 2600);
+}
+async function animate(st) {
+  if (st.kind === "t") {
+    const opp = st.by;
+    if (st.g.ph === "play") {
+      if (holeOn !== st.g0.hole) enterStateFor(st.g0);
+      sc.setTraps(st.g.traps, me(), st.g.n); sc.dropTraps(); sound.trap();
+      const bad = ["x", "o"].filter(p => st.g.pend[p] === false);
+      toast(bad.length ? "Jedna past se nevešla a propadla." : "Pasti jsou venku!", 2000);
+      sc.setMode("hole");
+      await sleep(1100);
+    } else if (!room.local && opp !== room.seat) toast(`${nameOf(opp)} už past postavil(a). Je schovaná, dokud nepostavíš svou.`, 3200);
+    return;
+  }
+  // úder: přepočítej snímky ze stavu před úderem (stejné vstupy = stejný výsledek jako v replay)
+  const g0 = st.g0, c = J.hole(g0.seed, g0.hole);
+  if (holeOn !== g0.hole) enterStateFor(g0);
+  sc.setTraps(g0.traps, me(), g0.n); sc.fadeOwn(st.by);
+  const fr = { x: [], o: [] }, by = st.by;
+  const b0 = { x: { ...g0.balls.x }, o: { ...g0.balls.o } };
+  if (!b0[by].on) b0[by] = { x: c.tee[0], y: c.tee[1], on: true, in: false };
+  fr.x.push(b0.x.x, b0.x.y); fr.o.push(b0.o.x, b0.o.y);
+  const res = J.shoot({ c, traps: g0.traps, balls: g0.balls, n: g0.n }, { by, A: st.a.A, P: st.a.P }, (t, bx, bo) => { fr.x.push(bx.x, bx.y); fr.o.push(bo.x, bo.y); });
+  for (const k of ["x", "o"]) sc.setBall(k, b0[k], b0[k].on && !b0[k].in);
+  sc.turnRing(null); sc.setAim(by, 0, 0);
+  if (sc.mode === "ball" || ui.camAuto) { sc.setMode("ball"); sc.frameBall(by); }
+  sound.putt(st.a.P / 1000);
+  sc.setFace(by, st.a.P > 700 ? "fast" : "aim", 700);
+  const evs = res.ev.slice();
+  let ei = 0;
+  const vis = { x: b0.x.on && !b0.x.in, o: b0.o.on && !b0.o.in };
+  await new Promise(done => sc.playFrames(fr, g0.n, tick => {
+    while (ei < evs.length && evs[ei].t + 1 <= tick) {
+      const e = evs[ei++], bx = fr[e.b][(e.t + 1) * 2], by2 = fr[e.b][(e.t + 1) * 2 + 1];
+      if (e.e === "zed") sound.wall(e.v || 60);
+      else if (e.e === "pero") { sound.spring(); sc.setFace(e.b, "fast", 700); }
+      else if (e.e === "mlyn") { sound.mill(); sc.setFace(e.b, "dizzy", 1300); }
+      else if (e.e === "past") { sc.setFace(e.b, e.k === "louze" ? "worry" : "dizzy", 1300); if (e.by) sc.setFace(e.by, "smug", 1800); }
+      else if (e.e === "voda") { sound.splash(); sc.burst(e.x, e.y, "voda"); sc.setFace(e.b, "wet", 1800); toast(e.b === by ? "Žbluňk! Zpátky na místo a rána navíc." : "Žbluňk!", 2200); }
+      else if (e.e === "jamka") { sound.cup(); sc.burst(c.cup[0], c.cup[1], "jamka"); vis[e.b] = false; sc.setBall(e.b, null, false); }
+      else if (e.e === "lip") { sound.lip(); sc.setFace(e.b, "worry", 900); }
+      else if (e.e === "srazka") sound.wall(120);
+      void bx; void by2;
+    }
+  }, done));
+  sc.setBlades(g0.n, res.ticks);
+  // konec jamky / partie
+  if (st.g.hole !== g0.hole || st.g.ph === "end") {
+    const h = g0.hole, par = c.par;
+    await sleep(500);
+    const line = p => { const v = st.g.sc[p][h]; return `<div class="hr r-${p}">${ballSvg(p, v < par ? "happy" : "idle")}<span>${esc(nameOf(p))}</span><b>${v}</b><em>${v === 1 ? "eso!" : rel(v - par)}</em></div>`; };
+    const el = $("intro");
+    el.innerHTML = `<div class="hi res"><span class="no">Jamka ${h + 1} · par ${par}</span>${line("x")}${line("o")}</div>`;
+    el.classList.add("on");
+    await sleep(2300);
+    el.classList.remove("on");
+    await sleep(250);
+  } else await sleep(350);
+}
+// když animace začíná na jiné jamce, než je zobrazená (pozdní načtení), nejdřív ji postav
+function enterStateFor(g) { holeOn = g.hole; sc.setHole(J.hole(g.seed, g.hole)); sc.snapCam(); }
+
+// ---------- pasti: výběr, posun, postavení ----------
+function pickTrap(k, quiet) {
+  ui.sel = k; ui.rot = 0;
+  const c = course();
+  // výchozí místo: platné políčko zhruba v půlce cesty
+  const dTee = c.df[Math.floor(c.tee[1]) * c.W + Math.floor(c.tee[0])];
+  const cand = [];
+  for (let y = 0; y < c.H; y++) for (let x = 0; x < c.W; x++) { const d = c.df[y * c.W + x]; if (d < 1e8) cand.push({ x: x + 0.5, y: y + 0.5, s: Math.abs(d - dTee * 0.5) }); }
+  cand.sort((a, b) => a.s - b.s);
+  const keep = ui.ghost && ui.ghost.ok ? ui.ghost : null;
+  let spot = keep ? { x: keep.x / 20, y: keep.y / 20 } : null;
+  if (!spot || !J.trapValid(c, { k, x: keep.x, y: keep.y, a: 0, by: me() })) spot = cand.find(q => J.trapValid(c, { k, x: Math.round(q.x * 20), y: Math.round(q.y * 20), a: 0 })) || cand[0];
+  moveGhost(spot.x, spot.y);
+  if (!quiet) sound.lip();
+}
+function moveGhost(x, y) {
+  const c = course(), m = me();
+  const t = { by: m, k: ui.sel, x: Math.round(x * 20), y: Math.round(y * 20), a: J.TRAPS[ui.sel].rot ? ui.rot : 0 };
+  t.ok = J.trapValid(c, t);
+  ui.ghost = t; sc.setGhost(t, t.ok);
+  const b = $("bPlace"); if (b) { b.disabled = !t.ok; b.textContent = t.ok ? "Postavit sem" : "Sem ne, zkus jinam"; }
+}
+function placeTrap() {
+  const t = ui.ghost; if (!t || !t.ok) return;
+  act({ t: "t", h: G.hole, k: t.k, x: t.x, y: t.y, a: t.a });
+  ui.sel = null; ui.ghost = null; sc.setGhost(null); sound.trap();
+}
+function act(a) {
+  const m = me();
+  if (room.local) { room.docs[m].acts = [...room.docs[m].acts, a]; }
+  else { const d = room.w.doc(); room.w.set({ acts: [...(d.acts || []), a] }, true); room.docs[m] = room.w.doc(); }
+  sync();
+}
+function fire(A, P) {
+  if (!G || G.ph !== "play" || G.p !== me() || busy) return;
+  act({ t: "s", n: G.n + 1, A, P });
+}
+
+// ---------- vstup: míření, posun ghostu, pinch zoom, posun kamery ----------
+const cv = $("cv"), pts = new Map();
+let pinch = null, pan = null;
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; ui.aim = null; sc.setAim(me() || "x", 0, 0); pan = null; return; }
+  if (!G || busy) return startPan(e);
+  const m = me();
+  if (G.ph === "trap" && m && G.pend[m] === null && ui.sel) { const g = sc.groundAt(e.clientX, e.clientY); if (g) moveGhost(g.x, g.y); ui.drag = true; return; }
+  if (G.ph === "play" && G.p === m) { ui.aim = { sx: e.clientX, sy: e.clientY, pow: 0, ang: 0 }; sc.setFace(m, "aim"); return; }
+  startPan(e);
+});
+function startPan(e) { pan = { x: e.clientX, y: e.clientY }; }
+cv.addEventListener("pointermove", e => {
+  if (!pts.has(e.pointerId)) return;
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && pts.size >= 2) { const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y); sc.zoomBy(pinch.d / d); pinch.d = d; return; }
+  if (ui.drag) { const g = sc.groundAt(e.clientX, e.clientY); if (g) moveGhost(g.x, g.y); return; }
+  if (ui.aim) {
+    const m = me(), b = sc.balls[m], h = b.g.position.y;
+    const g0 = sc.groundAt(ui.aim.sx, ui.aim.sy, h), g1 = sc.groundAt(e.clientX, e.clientY, h);
+    const px = Math.hypot(e.clientX - ui.aim.sx, e.clientY - ui.aim.sy), full = Math.max(150, Math.min(innerWidth, innerHeight) * 0.34);
+    if (!g0 || !g1) return;
+    ui.aim.pow = Math.min(1, px / full); ui.aim.ang = Math.atan2(g0.y - g1.y, g0.x - g1.x);
+    sc.setAim(m, ui.aim.ang, ui.aim.pow);
+    $("pow").style.setProperty("--p", ui.aim.pow.toFixed(3)); $("pow").classList.toggle("on", ui.aim.pow > 0.02);
+    $("pow").querySelector("b").textContent = Math.round(ui.aim.pow * 100) + " %";
+    return;
+  }
+  if (pan) {
+    const g0 = sc.groundAt(pan.x, pan.y, 0), g1 = sc.groundAt(e.clientX, e.clientY, 0);
+    if (g0 && g1) sc.pan(g0.x - g1.x, g0.y - g1.y);
+    pan = { x: e.clientX, y: e.clientY };
+  }
+});
+function endPtr(e) {
+  pts.delete(e.pointerId);
+  if (pts.size < 2) pinch = null;
+  if (ui.drag) { ui.drag = false; return; }
+  if (ui.aim) {
+    const a = ui.aim; ui.aim = null; const m = me();
+    sc.setAim(m, 0, 0); $("pow").classList.remove("on");
+    if (e.type === "pointercancel" || a.pow < 0.05) { sc.setFace(m, "idle"); return; }
+    let A = Math.round(a.ang / (Math.PI * 2) * J.ANG); A = ((A % J.ANG) + J.ANG) % J.ANG;
+    fire(A, Math.max(40, Math.round(a.pow * 1000)));
+  }
+  pan = null;
+}
+cv.addEventListener("pointerup", endPtr); cv.addEventListener("pointercancel", endPtr);
+cv.addEventListener("wheel", e => { e.preventDefault(); sc.zoomBy(e.deltaY > 0 ? 1.1 : 1 / 1.1); }, { passive: false });
+cv.addEventListener("dblclick", () => sc.skip());
+$("bCam").addEventListener("click", () => {
+  const m = G && G.ph === "play" ? G.p : null;
+  if (sc.mode === "ball" || !m) { sc.setMode("hole"); ui.camAuto = false; }
+  else { sc.setMode("ball"); sc.frameBall(m); ui.camAuto = true; }
+  paintCam();
+});
+function paintCam() {
+  const hole = sc.mode === "hole";
+  $("bCam").innerHTML = hole
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.3-4.3M11 8v6M8 11h6"/></svg><span>K míčku</span>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.3-4.3M8 11h6"/></svg><span>Oddálit</span>';
+  $("bCam").hidden = !G || G.ph !== "play";
+}
+$("bCard").addEventListener("click", () => document.body.classList.toggle("cardOpen"));
+
+// ---------- výsledek partie a odveta ----------
+function series() {
+  const h = (room.docs[room.seat || "x"] || {}).hist || [];
+  let wx = 0, wo = 0; for (const r of h) { if (r.x < r.o) wx++; else if (r.o < r.x) wo++; }
+  return [wx, wo];
+}
+function showEnd() {
+  const tx = totals("x").s, to = totals("o").s, m = me();
+  const [wx0, wo0] = series(), info = gameInfo();
+  const mine = room.docs[room.seat] || {}, logged = (mine.hist || []).some(r => r.gi === info.gi);
+  const ser = logged ? [wx0, wo0] : [wx0 + (G.win === "x" ? 1 : 0), wo0 + (G.win === "o" ? 1 : 0)];
+  const tl = J.titles(G, ser);
+  const head = G.win === "=" ? "Remíza!" : room.local ? `Vyhrává ${esc(nameOf(G.win))}` : G.win === room.seat ? "Vyhráváš!" : room.seat ? `Vyhrává ${esc(nameOf(G.win))}` : `Vyhrává ${esc(nameOf(G.win))}`;
+  const oppDoc = room.seat ? room.docs[other(room.seat)] || {} : {};
+  const myNext = room.seat && (mine.gi || 0) > info.gi, oppNext = room.seat && (oppDoc.gi || 0) > info.gi;
+  showView("end", `<div class="endcard">
+    <div class="win">${G.win === "=" ? ballSvg("x", "happy") + ballSvg("o", "happy") : ballSvg(G.win, "happy")}</div>
+    <h2>${head}</h2>
+    <p class="score"><span class="c-x">${esc(nameOf("x"))} ${tx}</span> : <span class="c-o">${to} ${esc(nameOf("o"))}</span></p>
+    ${ser[0] + ser[1] ? `<p class="ser">Série ${ser[0]} : ${ser[1]}</p>` : ""}
+    <div class="cardwrap">${$("card").innerHTML}</div>
+    ${tl.length ? `<ul class="titles">${tl.map(t => `<li class="c-${t.p}"><b>${esc(t.t)}</b><span>${esc(nameOf(t.p))} · ${esc(t.d)}</span></li>`).join("")}</ul>` : ""}
+    ${room.local ? '<button class="btn" id="bAgain">Nová partie</button>' : room.seat ? (myNext ? `<p class="wait">Čekáš, až ${esc(nameOf(other(room.seat)))} kývne na odvetu.</p>` : `<button class="btn" id="bAgain">${oppNext ? `Přijmout odvetu` : "Odveta"}</button>`) : '<p class="wait">Přihlížíš.</p>'}
+    ${oppNext && !myNext ? `<p class="wait">${esc(nameOf(other(room.seat)))} chce odvetu. Nové jamky, nové pasti.</p>` : ""}
+  </div>`);
+  $("bAgain")?.addEventListener("click", rematch);
+}
+function rematch() {
+  const info = gameInfo();
+  if (room.local) { for (const p of ["x", "o"]) room.docs[p] = { gi: info.gi + 1, acts: [], hist: [...(room.docs[p].hist || []), { gi: info.gi, x: totals("x").s, o: totals("o").s }] }; sync(); return; }
+  const d = room.w.doc(), hist = (d.hist || []).some(r => r.gi === info.gi) ? d.hist : [...(d.hist || []), { gi: info.gi, x: totals("x").s, o: totals("o").s }];
+  room.w.set({ gi: info.gi + 1, acts: [], hist: hist.slice(-40) }, true); room.docs[room.seat] = room.w.doc();
+  sync(); showEnd();
+}
+
+// ---------- obrazovky mimo hru ----------
+let view = "";
+function showView(name, html) { view = name; const v = $("view"); v.innerHTML = `<div class="panel ${name}">${html}</div>`; v.hidden = false; document.body.classList.add("menu"); }
+function hideView() { if (!view) return; view = ""; $("view").hidden = true; $("view").innerHTML = ""; document.body.classList.remove("menu"); }
+const HOW = `<ul class="how"><li><b>6 jamek</b>, každá partie jiná. Vyhrává, kdo má míň ran.</li><li>Před jamkou postavíš soupeři <b>past</b> a on tobě. Tvoje past tě nechá být.</li><li>Táhni od míčku zpátky a pusť. Voda = rána navíc.</li></ul>`;
+function viewSetup() {
+  room = null; G = null;
+  showView("setup", `<div class="logo">${ballSvg("x")}${ballSvg("o")}</div><h1>Jamka na míru</h1>
+    <p class="lead">Minigolf pro dva na jednom odkazu. Každý hraje na svém mobilu, kdy má chvilku.</p>
+    ${HOW}
+    <label for="fMe">Tvoje jméno</label><input id="fMe" maxlength="16" autocomplete="nickname" value="${esc(Net.store.get("jm-name") || "")}" placeholder="jak ti říkat">
+    <label for="fOpp">Koho vyzýváš <i>(nepovinné)</i></label><input id="fOpp" maxlength="16" placeholder="jméno soupeře">
+    <button class="btn" id="bCreate">Připravit výzvu</button>`);
+  $("bCreate").addEventListener("click", async () => {
+    const a = clampName($("fMe").value), b = clampName($("fOpp").value);
+    if (!a) { $("fMe").focus(); toast("Napiš svoje jméno, ať soupeř ví, kdo ho vyzývá."); return; }
+    if (sameName(a, b)) { $("fOpp").focus(); toast("Soupeř nemůže mít stejné jméno jako ty."); return; }
+    Net.store.set("jm-name", a);
+    $("bCreate").disabled = true; $("bCreate").textContent = "Chystám výzvu…";
+    try { await createRoom(a, b); } catch { $("bCreate").disabled = false; $("bCreate").textContent = "Připravit výzvu"; toast("Spojení nevyšlo, zkus to znovu."); }
+  });
+}
+const linkFor = () => BASE + "#r." + room.id;
+const message = () => `${room.meta.g.a} tě vyzývá na Jamku na míru: 6 jamek minigolfu a před každou si navzájem postavíte past. Hraj tady: ${linkFor()}`;
+async function shareLink() {
+  try { if (navigator.share) await navigator.share({ text: message() }); else { await navigator.clipboard.writeText(message()); toast("Odkaz zkopírovaný, vlož ho do chatu."); } } catch { }
+}
+function viewShare() {
+  const g = room.meta.g;
+  showView("share", `<h2>Pošli výzvu${g.b ? ` pro ${esc(g.b)}` : ""}</h2>
+    <p>Odkaz posíláš jen jednou, hrajete na něm i všechny odvety.</p>
+    <p class="msg" id="msg">${esc(message())}</p>
+    <div class="row">${navigator.share ? '<button class="btn" id="bShare">Poslat</button>' : ""}<button class="btn ${navigator.share ? "alt" : ""}" id="bCopy">Kopírovat</button></div>
+    <button class="btn alt" id="bGo">Postavit první past</button>`);
+  $("bShare")?.addEventListener("click", async () => { try { await navigator.share({ text: message() }); } catch { } });
+  $("bCopy").addEventListener("click", async () => { try { await navigator.clipboard.writeText(message()); toast("Zkopírováno, vlož to do chatu."); } catch { getSelection().selectAllChildren($("msg")); toast("Označeno, zkopíruj to ručně."); } });
+  $("bGo").addEventListener("click", () => { hideView(); fresh = true; sync(); layout(); });
+}
+function viewIntro() {
+  const g = room.meta.g;
+  showView("intro", `<div class="logo">${ballSvg("x")}${ballSvg("o")}</div><h1>${esc(g.a)} tě vyzývá</h1>
+    <p class="lead">na Jamku na míru. Hrajete každý na svém, kdy máte chvilku.</p>${HOW}
+    <label for="fName">Tvoje jméno</label><input id="fName" maxlength="16" value="${esc(g.b || Net.store.get("jm-name") || "")}" placeholder="jak ti říkat">
+    <button class="btn" id="bAccept">Přijmout výzvu</button>
+    <button class="btn alt" id="bMine">Jsem ${esc(g.a)}, výzvu jsem založil(a) já</button>`);
+  $("bAccept").addEventListener("click", accept);
+  $("bMine").addEventListener("click", () => takeSeat("x"));
+}
+function viewWatch() {
+  const g = room.meta.g;
+  showView("watch", `<h2>Tuhle partii hrají ${esc(g.a)} a ${esc(g.b)}</h2><p>Jsi jeden z nich na jiném zařízení? Vyber se a hra se přesune sem.</p>
+    <button class="btn" id="bAsX">Jsem ${esc(g.a)}</button><button class="btn alt" id="bAsO">Jsem ${esc(g.b)}</button>
+    <button class="btn alt" id="bSpect">Jen se dívat</button><button class="btn alt" id="bNew">Založit vlastní partii</button>`);
+  $("bAsX").addEventListener("click", () => takeSeat("x"));
+  $("bAsO").addEventListener("click", () => takeSeat("o"));
+  $("bSpect").addEventListener("click", () => { hideView(); fresh = true; sync(); layout(); toast("Přihlížíš."); });
+  $("bNew").addEventListener("click", () => { history.replaceState(null, "", location.pathname + location.search); stopPoll(); viewSetup(); });
+}
+function viewError(t, text, retry) {
+  showView("error", `<h2>${esc(t)}</h2><p>${esc(text || "Odkaz může být neúplný. Zkus ho otevřít znovu, nebo založ novou partii.")}</p>
+    ${retry ? '<button class="btn" id="bRetry">Zkusit znovu</button>' : ""}<button class="btn ${retry ? "alt" : ""}" id="bNew">Založit novou partii</button>`);
+  $("bRetry")?.addEventListener("click", openFromHash);
+  $("bNew").addEventListener("click", () => { history.replaceState(null, "", location.pathname + location.search); viewSetup(); });
+}
+
+// ---------- místnost ----------
+const seatKey = id => "jm-seat-" + id;
+const seatDoc = () => ({ gi: 0, acts: [], hist: [] });
+async function createRoom(a, b) {
+  const id = Net.randId(10);
+  const meta = { app: "jamka-na-miru", v: 1, sx: Net.device, so: "", g: { a, b } };
+  await Net.save(Net.metaUrl(id), meta);
+  await Net.save(Net.seatUrl(id, "x"), seatDoc());
+  Net.store.set(seatKey(id), "x");
+  history.replaceState(null, "", location.pathname + location.search + "#r." + id);
+  await enterRoom(id, meta);
+  viewShare();
+}
+async function openFromHash() {
+  const m = /^#r\.([0-9a-z]{6,16})$/.exec(location.hash || "");
+  if (!m) { viewSetup(); return; }
+  showView("loading", `<h2>Otevírám partii…</h2>`);
+  let meta;
+  try { meta = await Net.load(Net.metaUrl(m[1])); }
+  catch { viewError("Spojení nevyšlo.", "Nedaří se dovolat ke hře. Zkontroluj signál a zkus to znovu.", true); return; }
+  if (!meta || meta.app !== "jamka-na-miru") { viewError("Tahle partie neexistuje."); return; }
+  await enterRoom(m[1], meta);
+  if (!room.seat) { if (!meta.so) { viewIntro(); return; } viewWatch(); return; }
+  hideView(); sync(); layout();
+}
+async function enterRoom(id, meta) {
+  stopPoll();
+  let seat = Net.store.get(seatKey(id));
+  if (meta.sx === Net.device) seat = "x"; else if (meta.so === Net.device) seat = "o";
+  else if (seat && meta["s" + seat] !== Net.device) seat = null;
+  room = { id, meta, seat, docs: { x: null, o: null }, w: null };
+  fresh = true; gameKey = "";
+  try { const [dx, dy] = await Promise.all([Net.load(Net.seatUrl(id, "x")), Net.load(Net.seatUrl(id, "o"))]); room.docs.x = dx; room.docs.o = dy; } catch { }
+  if (seat) attachSeat();
+  startPoll();
+}
+function attachSeat() {
+  const d = room.docs[room.seat] || seatDoc();
+  room.w = Net.seatWriter(room.id, room.seat, d);
+  room.w.onNet = t => setNet(t);
+  if (!room.docs[room.seat]) room.w.set({}, true);
+  room.docs[room.seat] = room.w.doc();
+  Net.store.set(seatKey(room.id), room.seat);
+}
+async function accept() {
+  const name = clampName($("fName").value);
+  if (!name) { $("fName").focus(); toast("Napiš svoje jméno."); return; }
+  if (sameName(name, room.meta.g.a)) { $("fName").focus(); toast(`Výzvu založil(a) ${room.meta.g.a}. Jsi to ty? Klepni na „Jsem ${room.meta.g.a}“, jinak napiš svoje jméno.`, 4200); return; }
+  Net.store.set("jm-name", name);
+  $("bAccept").disabled = true; $("bAccept").textContent = "Přijímám…";
+  try {
+    const r = await Net.commitMeta(room.id, d => d && !d.so ? { ...d, so: Net.device, g: { ...d.g, b: name } } : null);
+    if (!r.ok) { toast("Výzvu už mezitím přijal někdo jiný."); room.meta = r.d || room.meta; viewWatch(); return; }
+    room.meta = r.d; room.seat = "o"; attachSeat();
+    hideView(); fresh = true; sync(); layout();
+  } catch { $("bAccept").disabled = false; $("bAccept").textContent = "Přijmout výzvu"; toast("Spojení nevyšlo, zkus to znovu."); }
+}
+async function takeSeat(seat) {
+  try {
+    const r = await Net.commitMeta(room.id, d => d ? { ...d, ["s" + seat]: Net.device } : null);
+    room.meta = r.d; room.seat = seat; attachSeat(); hideView(); fresh = true; sync(); layout();
+  } catch { toast("Spojení nevyšlo, zkus to znovu."); }
+}
+function setNet(t) { $("net").textContent = t || ""; $("net").hidden = !t; }
+
+// ---------- polling ----------
+let pollT = 0, pollSeq = 0, fails = 0;
+function stopPoll() { clearTimeout(pollT); pollSeq++; }
+function startPoll() { stopPoll(); poll(); }
+async function poll() {
+  clearTimeout(pollT);
+  if (!room || room.local || document.hidden) return;
+  const seq = ++pollSeq, id = room.id;
+  const waitingOn = G && G.ph === "play" && G.p !== room.seat;
+  try {
+    const opp = room.seat ? other(room.seat) : null;
+    const [meta, a, b] = await Promise.all([
+      !room.meta.so || !room.seat ? Net.load(Net.metaUrl(id)) : null,
+      room.seat ? Net.load(Net.seatUrl(id, opp)) : Net.load(Net.seatUrl(id, "x")),
+      room.seat ? null : Net.load(Net.seatUrl(id, "o")),
+    ]);
+    if (!room || room.id !== id || seq !== pollSeq) return;
+    fails = 0; setNet("");
+    if (meta) room.meta = meta;
+    if (room.seat) { if (a) room.docs[opp] = a; } else { room.docs.x = a; room.docs.o = b; }
+    if (room.seat && room.w) room.docs[room.seat] = room.w.doc();
+    const before = shown;
+    if (!view || view === "end") sync();
+    if (G && G.ph === "end" && !busy && before === shown) showEnd();
+    paintHud();
+  } catch { fails++; if (fails >= 3) setNet("Spojení vázne, zkouším to znovu…"); }
+  if (seq === pollSeq) pollT = setTimeout(poll, fails ? Math.min(6000, 1500 * 2 ** Math.min(fails, 2)) : waitingOn ? 1200 : 2500);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && room) startPoll(); });
+addEventListener("online", () => room && startPoll());
+addEventListener("hashchange", () => { if (!LOCAL) openFromHash(); });
+
+// ---------- start ----------
+if (LOCAL) {
+  const seed = Q.get("mistni") || "demo";
+  room = { id: "mistni-" + seed, local: true, meta: { g: { a: Q.get("a") || "Mark", b: Q.get("b") || "Radka" }, so: "o" }, seat: null, docs: { x: seatDoc(), o: seatDoc() } };
+  hideView(); sync();
+} else openFromHash();
+requestAnimationFrame(layout);
+
+// ---------- háčky pro testy ----------
+window.__jm = {
+  state: () => G && { ph: G.ph, hole: G.hole, p: G.p, n: G.n, me: me(), seat: room && room.seat, busy, view, balls: G.balls, str: G.str, sc: G.sc, pars: G.pars, pend: G.pend && { x: G.pend.x !== null, o: G.pend.o !== null }, traps: G.traps, win: G.win, seed: G.seed },
+  info: () => room && gameInfo(),
+  trap(k, x, y, a = 0) { if (!ui.sel || ui.sel !== k) pickTrap(k, true); if (x != null) { ui.rot = a; moveGhost(x, y); } const ok = ui.ghost && ui.ghost.ok; placeTrap(); return ok; },
+  autoTrap() { const m = me(), o = J.offer(G, m); pickTrap(o[0], true); const ok = ui.ghost && ui.ghost.ok; placeTrap(); return ok; },
+  bot() { const c = course(); const m = me(); const balls = G.balls[m].on ? G.balls : { ...G.balls, [m]: { x: c.tee[0], y: c.tee[1], on: true, in: false } }; const b = J.botShot({ ...c, }, balls, m); return { A: b.A, P: b.P }; },
+  shoot: (A, P) => fire(A, P),
+  ballScreen(k) { const b = sc.balls[k]; return sc.toScreen(b.x, b.y, b.g.position.y); },
+  scene: sc,
+};

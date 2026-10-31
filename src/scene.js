@@ -1,0 +1,542 @@
+// Jamka na míru – 3D low-poly scéna (three.js). Svět: x = sloupec mřížky, z = řádek mřížky, y = výška.
+// Ploché barvy, málo prvků, žádné stíny z mapy (jen měkká skvrna pod míčkem), ať to jede plynule na iPhonu.
+import * as THREE from "three";
+
+const J = self.JM;
+export const PLAYER = { x: { ball: "#FF6A3D", deep: "#D9461F" }, o: { ball: "#3E8BFF", deep: "#1F5FD6" } };
+const THEME = {
+  zahrada: { sky: "#CFEBD9", ground: "#9CCB72", ground2: "#8DBF63", turfA: "#57B947", turfB: "#4DAE3F", wall: "#F6E7C8", wallSide: "#E3C99B", post: "#E9D3A6",
+    skirt: "#7E5B3A", water: "#47B6E0", waterDeep: "#2E93C4", plank: "#C98A4B", plank2: "#B87A3E", tree: "#3F9A4E", tree2: "#2F8540", trunk: "#8A5A35", rock: "#B7B9A8", flag: "#FFD23F", accent: "#F25F5C" },
+  plaz: { sky: "#BFE6F2", ground: "#F3DDA4", ground2: "#EBCF8E", turfA: "#3FBF9A", turfB: "#36B08D", wall: "#FFFFFF", wallSide: "#D8E6EE", post: "#FF8A5B",
+    skirt: "#C99A5B", water: "#2FB6DE", waterDeep: "#1F92BE", plank: "#D9A066", plank2: "#C58C55", tree: "#39A86B", tree2: "#2C9058", trunk: "#B07A47", rock: "#E6D2A8", flag: "#FF5D73", accent: "#FF8A5B" },
+  zima: { sky: "#DCE8F5", ground: "#F4F8FB", ground2: "#E6EEF5", turfA: "#5DB88E", turfB: "#52AC82", wall: "#E8584A", wallSide: "#C8463A", post: "#FFFFFF",
+    skirt: "#8C9DB0", water: "#7FC4E8", waterDeep: "#5AA6D4", plank: "#A7774E", plank2: "#956844", tree: "#2F7D5B", tree2: "#25694C", trunk: "#6E4A32", rock: "#C9D3DE", flag: "#3E8BFF", accent: "#E8584A" },
+};
+const col = h => new THREE.Color(h);
+
+// ---------- geometrie z trojúhelníků s barvou ve vrcholech (ploché stínování) ----------
+class Mesher {
+  constructor() { this.p = []; this.c = []; }
+  tri(a, b, c, color) { const k = col(color); for (const v of [a, b, c]) { this.p.push(v[0], v[1], v[2]); this.c.push(k.r, k.g, k.b); } }
+  quad(a, b, c, d, color) { this.tri(a, b, c, color); this.tri(a, c, d, color); }
+  mesh(mat) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(this.p, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(this.c, 3));
+    g.computeVertexNormals();
+    return new THREE.Mesh(g, mat);
+  }
+}
+const flatMat = () => new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+function lowMat(color, extra) { return new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra }); }
+
+// ---------- obličeje míčků (kreslené na plátno, jako sprite přes míček) ----------
+const faceCache = new Map();
+function faceTex(kind) {
+  if (faceCache.has(kind)) return faceCache.get(kind);
+  const S = 128, cv = document.createElement("canvas"); cv.width = cv.height = S;
+  const g = cv.getContext("2d");
+  g.lineCap = "round"; g.lineJoin = "round";
+  const ink = "#1E1B2E";
+  const eye = (x, y, r, look = [0, 0], lid = 0) => {
+    g.fillStyle = "#fff"; g.beginPath(); g.ellipse(x, y, r, r * 1.12, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = ink; g.beginPath(); g.arc(x + look[0] * r * 0.35, y + look[1] * r * 0.35, r * 0.5, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(x + look[0] * r * 0.35 - r * 0.18, y + look[1] * r * 0.35 - r * 0.2, r * 0.16, 0, Math.PI * 2); g.fill();
+    if (lid) { g.fillStyle = "rgba(0,0,0,0.0)"; }
+  };
+  const lidLine = (x, y, r, tilt) => { g.strokeStyle = ink; g.lineWidth = 7; g.beginPath(); g.moveTo(x - r - 2, y - r * 0.55 + tilt); g.lineTo(x + r + 2, y - r * 0.55 - tilt); g.stroke(); };
+  const arcEye = (x, y, r, up) => { g.strokeStyle = ink; g.lineWidth = 8; g.beginPath(); if (up) g.arc(x, y + r * 0.4, r, Math.PI * 1.15, Math.PI * 1.85); else g.arc(x, y - r * 0.5, r, Math.PI * 0.15, Math.PI * 0.85); g.stroke(); };
+  const L = 42, Rr = 86, Y = 58, er = 17;
+  switch (kind) {
+    case "aim": eye(L, Y, er, [0.2, -0.3]); eye(Rr, Y, er, [0.2, -0.3]); lidLine(L, Y, er, -4); lidLine(Rr, Y, er, 4);
+      g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); g.moveTo(54, 96); g.lineTo(76, 94); g.stroke(); break;
+    case "fast": eye(L, Y - 2, er + 3, [0, 0]); eye(Rr, Y - 2, er + 3, [0, 0]);
+      g.fillStyle = ink; g.beginPath(); g.ellipse(64, 99, 8, 10, 0, 0, Math.PI * 2); g.fill(); break;
+    case "dizzy": for (const x of [L, Rr]) { g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); for (let a = 0; a < 12; a += 0.3) { const rr = a * 1.5; g.lineTo(x + Math.cos(a) * rr, Y + Math.sin(a) * rr); } g.stroke(); }
+      g.lineWidth = 6; g.beginPath(); g.moveTo(48, 98); g.quadraticCurveTo(56, 90, 64, 98); g.quadraticCurveTo(72, 106, 80, 98); g.stroke(); break;
+    case "wet": eye(L, Y + 2, er, [0, 0.5]); eye(Rr, Y + 2, er, [0, 0.5]);
+      g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); g.moveTo(26, 36); g.lineTo(52, 42); g.moveTo(102, 36); g.lineTo(76, 42); g.stroke();
+      g.beginPath(); g.arc(64, 108, 13, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+      g.fillStyle = "#7FD3FF"; g.beginPath(); g.moveTo(104, 64); g.quadraticCurveTo(112, 78, 104, 84); g.quadraticCurveTo(96, 78, 104, 64); g.fill(); break;
+    case "happy": arcEye(L, Y, 15, true); arcEye(Rr, Y, 15, true);
+      g.fillStyle = ink; g.beginPath(); g.moveTo(44, 86); g.quadraticCurveTo(64, 116, 84, 86); g.closePath(); g.fill();
+      g.fillStyle = "#FF8FA3"; g.beginPath(); g.ellipse(64, 99, 9, 5, 0, 0, Math.PI * 2); g.fill(); break;
+    case "smug": eye(L, Y, er, [0.6, 0]); eye(Rr, Y, er, [0.6, 0]); lidLine(L, Y + 6, er, 0); lidLine(Rr, Y + 6, er, 0);
+      g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); g.moveTo(50, 94); g.quadraticCurveTo(68, 102, 82, 88); g.stroke(); break;
+    case "worry": eye(L, Y, er, [0, 0.2]); eye(Rr, Y, er, [0, 0.2]);
+      g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); g.moveTo(26, 30); g.lineTo(50, 24); g.moveTo(102, 30); g.lineTo(78, 24); g.stroke();
+      g.beginPath(); g.moveTo(50, 98); g.lineTo(58, 94); g.lineTo(66, 98); g.lineTo(74, 94); g.lineTo(80, 98); g.stroke(); break;
+    case "sleep": g.strokeStyle = ink; g.lineWidth = 7; g.beginPath(); g.moveTo(L - 14, Y + 2); g.lineTo(L + 14, Y + 2); g.moveTo(Rr - 14, Y + 2); g.lineTo(Rr + 14, Y + 2); g.stroke();
+      g.lineWidth = 5; g.beginPath(); g.arc(64, 94, 6, 0, Math.PI * 2); g.stroke(); break;
+    default: eye(L, Y, er, [0, 0.1]); eye(Rr, Y, er, [0, 0.1]);
+      g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); g.arc(64, 84, 16, Math.PI * 0.2, Math.PI * 0.8); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 2;
+  faceCache.set(kind, t);
+  return t;
+}
+function blobTex() {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+  const g = cv.getContext("2d"), gr = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+  gr.addColorStop(0, "rgba(20,30,40,0.42)"); gr.addColorStop(1, "rgba(20,30,40,0)");
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(cv); return t;
+}
+
+export function createScene(canvas) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x8a9a7a, 1.55);
+  const sun = new THREE.DirectionalLight(0xfff1dc, 1.5); sun.position.set(-6, 14, 8);
+  scene.add(hemi, sun);
+  const world = new THREE.Group(); scene.add(world);
+  const trapG = new THREE.Group(); scene.add(trapG);
+  const fx = new THREE.Group(); scene.add(fx);
+  const blob = blobTex();
+
+  let c = null, th = THEME.zahrada, traps = [], meSeat = null, ghost = null, cupMesh = null, flag = null;
+  const balls = {}, aim = {};
+  // ---------- míčky ----------
+  for (const k of ["x", "o"]) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.IcosahedronGeometry(J.R, 2), lowMat(PLAYER[k].ball));
+    const face = new THREE.Sprite(new THREE.SpriteMaterial({ map: faceTex("idle"), transparent: true, depthWrite: false }));
+    face.scale.set(J.R * 1.7, J.R * 1.7, 1);
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(J.R * 3.2, J.R * 3.2), new THREE.MeshBasicMaterial({ map: blob, transparent: true, depthWrite: false }));
+    sh.rotation.x = -Math.PI / 2;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(J.R * 1.55, J.R * 1.85, 24), new THREE.MeshBasicMaterial({ color: PLAYER[k].ball, transparent: true, opacity: 0.0, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    g.add(body, face); scene.add(g, sh, ring);
+    balls[k] = { g, body, face, sh, ring, kind: "idle", x: 0, y: 0, vis: false, squash: 0, face0: "idle", until: 0 };
+  }
+  // ---------- míření: tečkovaná čára a prstenec síly ----------
+  const dots = [];
+  for (let i = 0; i < 14; i++) { const m = new THREE.Mesh(new THREE.CircleGeometry(0.045, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.visible = false; scene.add(m); dots.push(m); }
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.2, 3), new THREE.MeshBasicMaterial({ color: 0xffffff })); arrow.visible = false; scene.add(arrow);
+
+  // ---------- stavba jamky ----------
+  function clear(g) { for (const o of [...g.children]) { g.remove(o); o.traverse(q => { if (q.geometry) q.geometry.dispose(); }); } }
+  const H = (X, Y) => c.hc[Y * (c.W + 1) + X];
+  function setHole(course) {
+    c = course; th = THEME[c.th] || THEME.zahrada;
+    clear(world); clear(trapG); clear(fx); traps = []; ghost = null;
+    scene.background = col(th.sky);
+    scene.fog = new THREE.Fog(col(th.sky), 30, 70);
+    hemi.groundColor = col(th.ground);
+    const GROUND = -0.55, WATER_D = 0.2;
+    const m = new Mesher(), W = c.W, Hh = c.H;
+    // podklad: velká plocha s jemnými záhony
+    const gr = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), lowMat(th.ground)); gr.rotation.x = -Math.PI / 2; gr.position.set(W / 2, GROUND, Hh / 2); world.add(gr);
+    const r = J.rng(c.seed ^ (c.hi * 7919 + 13));
+    // trávník, mosty a voda
+    for (let y = 0; y < Hh; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x, t = c.type[i]; if (!t) continue;
+      const a = [x, H(x, y), y], b = [x + 1, H(x + 1, y), y], cc = [x + 1, H(x + 1, y + 1), y + 1], d = [x, H(x, y + 1), y + 1];
+      const leg = c.legs[c.legOf[i]], vert = leg && (leg.d === 0 || leg.d === 2);
+      if (t === J.FLOOR) {
+        const stripe = ((vert ? y : x) & 1) ? th.turfA : th.turfB;
+        const cu = c.cut[i];
+        if (cu === 1) m.tri(a, cc, d, stripe); else if (cu === 4) m.tri(a, b, cc, stripe);
+        else if (cu === 2) m.tri(b, cc, d, stripe); else if (cu === 3) m.tri(a, b, d, stripe);
+        else m.quad(a, d, cc, b, stripe);
+      } else if (t === J.BRIDGE) {
+        // prkna napříč směrem nohy
+        for (let q = 0; q < 4; q++) {
+          const f0 = q / 4, f1 = (q + 1) / 4, sh = q & 1 ? th.plank : th.plank2, h = a[1] + 0.02;
+          if (vert) m.quad([x, h, y + f0], [x, h, y + f1], [x + 1, h, y + f1], [x + 1, h, y + f0], sh);
+          else m.quad([x + f0, h, y], [x + f0, h, y + 1], [x + f1, h, y + 1], [x + f1, h, y], sh);
+        }
+      } else if (t === J.WATER) {
+        const h = a[1] - WATER_D;
+        m.quad([x, h, y], [x, h, y + 1], [x + 1, h, y + 1], [x + 1, h, y], ((x + y) & 1) ? th.water : th.waterDeep);
+      }
+      // břeh: kde trávník nebo most končí u vody
+      if (t !== J.WATER) {
+        const nb = [[0, -1, a, b], [1, 0, b, cc], [0, 1, cc, d], [-1, 0, d, a]];
+        for (const [dx, dy, p, q] of nb) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= Hh || c.type[ny * W + nx] !== J.WATER) continue;
+          const lo = Math.min(p[1], q[1]) - WATER_D - 0.02;
+          m.quad(p, q, [q[0], lo, q[2]], [p[0], lo, p[2]], t === J.BRIDGE ? th.plank2 : th.skirt);
+        }
+      }
+    }
+    // mantinely: vnitřní stěna, horní hrana, vnější stěna až k zemi
+    const WH = 0.26, WT = 0.16, posts = new Map();
+    for (const s of c.segs) {
+      const dx = s[2] - s[0], dz = s[3] - s[1], l = Math.sqrt(dx * dx + dz * dz), nx = dz / l, nz = -dx / l;
+      const a0 = [s[0], s[4], s[1]], b0 = [s[2], s[5], s[3]];
+      const a1 = [s[0], s[4] + WH, s[1]], b1 = [s[2], s[5] + WH, s[3]];
+      const a2 = [s[0] + nx * WT, s[4] + WH, s[1] + nz * WT], b2 = [s[2] + nx * WT, s[5] + WH, s[3] + nz * WT];
+      const a3 = [a2[0], GROUND, a2[2]], b3 = [b2[0], GROUND, b2[2]];
+      m.quad(a0, a1, b1, b0, th.wallSide);
+      m.quad(a1, a2, b2, b1, th.wall);
+      m.quad(a2, a3, b3, b2, th.skirt);
+      for (const p of [[s[0], s[1], s[4]], [s[2], s[3], s[5]]]) { const k = p[0] + "," + p[1]; if (!posts.has(k)) posts.set(k, p); }
+    }
+    for (const [px, pz, h] of posts.values()) {
+      const s = 0.12, t = h + WH + 0.05;
+      const A = [px - s, t, pz - s], B = [px + s, t, pz - s], C = [px + s, t, pz + s], D = [px - s, t, pz + s];
+      m.quad(A, D, C, B, th.post);
+      const low = h + WH - 0.06;
+      m.quad(A, B, [B[0], low, B[2]], [A[0], low, A[2]], th.post); m.quad(B, C, [C[0], low, C[2]], [B[0], low, B[2]], th.post);
+      m.quad(C, D, [D[0], low, D[2]], [C[0], low, C[2]], th.post); m.quad(D, A, [A[0], low, A[2]], [D[0], low, D[2]], th.post);
+    }
+    world.add(m.mesh(flatMat()));
+    // kolíky
+    for (const p of c.posts) {
+      const h = J.surf(c, p.x, p.y).h;
+      const k = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r, 0.36, 7), lowMat(th.post)); k.position.set(p.x, h + 0.18, p.y); world.add(k);
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 0.7, p.r, 0.08, 7), lowMat(th.accent)); cap.position.set(p.x, h + 0.4, p.y); world.add(cap);
+    }
+    // ostrůvky: keř nebo kámen
+    for (let y = 0; y < Hh; y++) for (let x = 0; x < W; x++) if (c.island[y * W + x]) {
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 1), lowMat(th.skirt)); base.position.set(x + 0.5, GROUND + 0.5, y + 0.5); world.add(base);
+      const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 0), lowMat(r() < 0.5 ? th.tree : th.tree2)); b.position.set(x + 0.5, 0.5, y + 0.5); b.scale.set(1, 0.8, 1); b.rotation.y = r() * 3; world.add(b);
+    }
+    // odpaliště
+    const tee = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.04, 0.8), lowMat(th.turfB)); const th0 = J.surf(c, c.tee[0], c.tee[1]).h;
+    tee.position.set(c.tee[0], th0 + 0.02, c.tee[1]); world.add(tee);
+    const teeLine = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.05), lowMat(0xffffff)); teeLine.position.set(c.tee[0], th0 + 0.03, c.tee[1] + 0.25); world.add(teeLine);
+    // jamka a vlajka
+    const ch = J.surf(c, c.cup[0], c.cup[1]).h, cupR = J.CUP_R * (c.mod === "velka" ? 1.45 : c.mod === "mala" ? 0.8 : 1);
+    cupMesh = new THREE.Mesh(new THREE.CircleGeometry(cupR, 18), new THREE.MeshBasicMaterial({ color: 0x1b2a22 })); cupMesh.rotation.x = -Math.PI / 2; cupMesh.position.set(c.cup[0], ch + 0.006, c.cup[1]); world.add(cupMesh);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(cupR, cupR + 0.05, 18), new THREE.MeshBasicMaterial({ color: 0xffffff })); rim.rotation.x = -Math.PI / 2; rim.position.set(c.cup[0], ch + 0.008, c.cup[1]); world.add(rim);
+    flag = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 5), lowMat(0xffffff)); pole.position.y = 0.65;
+    const fm = new Mesher(); fm.tri([0, 1.3, 0], [0, 0.95, 0], [0.5, 1.13, 0], th.flag); fm.tri([0, 1.3, 0], [0.5, 1.13, 0], [0, 0.95, 0], th.flag);
+    const cloth = fm.mesh(flatMat());
+    flag.add(pole, cloth); flag.position.set(c.cup[0], ch, c.cup[1]); flag.userData.cloth = cloth; world.add(flag);
+    // okolí: pár stromů a kamenů mimo dráhu (jen ozdoba, ze seedu)
+    const free = (x, y) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const X = Math.floor(x) + a, Y = Math.floor(y) + b; if (X >= 0 && Y >= 0 && X < W && Y < Hh && (c.type[Y * W + X] || c.island[Y * W + X])) return false; } return true; };
+    let placed = 0;
+    for (let tries = 0; tries < 220 && placed < 14; tries++) {
+      const x = -3 + r() * (W + 6), y = -3 + r() * (Hh + 6);
+      if (!free(x, y)) continue;
+      placed++;
+      if (r() < 0.62) world.add(tree(x, y, GROUND, r)); else { const s = 0.25 + r() * 0.35, k = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), lowMat(th.rock)); k.position.set(x, GROUND + s * 0.5, y); k.rotation.set(r(), r(), r()); world.add(k); }
+    }
+    fitHole();
+  }
+  function tree(x, y, base, r) {
+    const g = new THREE.Group(), s = 0.7 + r() * 0.6;
+    if (c.th === "zima") {
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * s, 0.08 * s, 0.4 * s, 5), lowMat(th.trunk)); t.position.y = 0.2 * s; g.add(t);
+      for (let i = 0; i < 3; i++) { const k = new THREE.Mesh(new THREE.ConeGeometry((0.55 - i * 0.14) * s, 0.55 * s, 6), lowMat(i === 2 ? "#FFFFFF" : th.tree)); k.position.y = (0.55 + i * 0.32) * s; g.add(k); }
+    } else if (c.th === "plaz") {
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * s, 0.08 * s, 1.5 * s, 5), lowMat(th.trunk)); t.position.y = 0.75 * s; t.rotation.z = 0.12; g.add(t);
+      for (let i = 0; i < 5; i++) { const l = new THREE.Mesh(new THREE.ConeGeometry(0.12 * s, 0.9 * s, 3), lowMat(i & 1 ? th.tree : th.tree2)); l.position.set(0.09 * s, 1.5 * s, 0); l.rotation.set(0, i * 1.256, 1.9); l.translateY(0.38 * s); g.add(l); }
+    } else {
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * s, 0.09 * s, 0.5 * s, 5), lowMat(th.trunk)); t.position.y = 0.25 * s; g.add(t);
+      const k = new THREE.Mesh(new THREE.IcosahedronGeometry(0.48 * s, 0), lowMat(r() < 0.5 ? th.tree : th.tree2)); k.position.y = 0.85 * s; g.add(k);
+    }
+    g.position.set(x, base, y); g.rotation.y = r() * 6;
+    return g;
+  }
+
+  // ---------- pasti ----------
+  function trapMesh(t, ghostMode) {
+    const g = new THREE.Group(), geo = J.trapGeom(t), h = J.surf(c, geo.x, geo.y).h;
+    const owner = t.by ? PLAYER[t.by].ball : "#ffffff";
+    const ringR = t.k === "mlyn" ? J.MLYN_R + 0.08 : t.k === "louze" ? J.LOUZE_R : t.k === "kopec" ? J.KOPEC_R : J.STENA_H + 0.1;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(ringR - 0.05, ringR, 28), new THREE.MeshBasicMaterial({ color: owner, transparent: true, opacity: 0.85, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; g.add(ring);
+    if (t.k === "mlyn") {
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.42, 8), lowMat("#F6E7C8")); hub.position.y = 0.21; g.add(hub);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.3, 8), lowMat(th.accent)); roof.position.y = 0.57; g.add(roof);
+      const rot = new THREE.Group(); rot.position.y = 0.14;
+      for (let q = 0; q < 4; q++) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(J.MLYN_R - 0.2, 0.18, 0.08), lowMat(q & 1 ? "#FFFFFF" : th.accent));
+        const piv = new THREE.Group(); piv.rotation.y = -q * Math.PI / 2; b.position.x = 0.2 + (J.MLYN_R - 0.2) / 2; piv.add(b); rot.add(piv);
+      }
+      g.add(rot); g.userData.rot = rot;
+    } else if (t.k === "louze") {
+      const pts = [], rr = J.rng(t.x * 31 + t.y);
+      for (let i = 0; i < 11; i++) { const a = i / 11 * Math.PI * 2, q = J.LOUZE_R * (0.86 + rr() * 0.14); pts.push(new THREE.Vector2(Math.cos(a) * q, Math.sin(a) * q)); }
+      const pud = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(pts)), lowMat("#6FA6C4")); pud.rotation.x = -Math.PI / 2; pud.position.y = 0.02; g.add(pud);
+      const shine = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.33, 14, 1, 0.4, 1.6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 })); shine.rotation.x = -Math.PI / 2; shine.position.y = 0.03; g.add(shine);
+      // kachnička
+      const duck = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.17, 1), lowMat("#FFD23F")); body.scale.set(1.25, 0.8, 1); duck.add(body);
+      const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 1), lowMat("#FFD23F")); head.position.set(0.14, 0.15, 0); duck.add(head);
+      const beak = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.1, 4), lowMat("#FF8A3D")); beak.rotation.z = -Math.PI / 2; beak.position.set(0.26, 0.14, 0); duck.add(beak);
+      const e1 = new THREE.Mesh(new THREE.SphereGeometry(0.018, 5, 4), lowMat("#1E1B2E")); e1.position.set(0.2, 0.19, 0.06); duck.add(e1);
+      const e2 = e1.clone(); e2.position.z = -0.06; duck.add(e2);
+      duck.position.set(-0.25, 0.12, 0.2); duck.rotation.y = 0.6; g.add(duck); g.userData.duck = duck;
+    } else if (t.k === "stena") {
+      const wall = new Mesher(), L = J.STENA_H, n = 6;
+      for (let i = 0; i < n; i++) {
+        const x0 = -L + i * 2 * L / n, x1 = x0 + 2 * L / n, cl = i & 1 ? "#FFFFFF" : th.accent;
+        const A = [x0, 0, -0.07], B = [x1, 0, -0.07], C = [x1, 0.3, -0.07], D = [x0, 0.3, -0.07], A2 = [x0, 0, 0.07], B2 = [x1, 0, 0.07], C2 = [x1, 0.3, 0.07], D2 = [x0, 0.3, 0.07];
+        wall.quad(A, D, C, B, cl); wall.quad(B2, C2, D2, A2, cl); wall.quad(D, D2, C2, C, cl);
+        if (i === 0) wall.quad(A2, D2, D, A, cl); if (i === n - 1) wall.quad(B, C, C2, B2, cl);
+      }
+      const wm = wall.mesh(flatMat()); g.add(wm);
+      for (const s of [-1, 1]) for (const side of [-1, 1]) {
+        const sp = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.02, 4, 8), lowMat("#9AA4B2")); sp.position.set(s * L * 0.55, 0.15, side * 0.13); sp.rotation.y = Math.PI / 2; g.add(sp);
+      }
+      g.rotation.y = -t.a * Math.PI * 2 / J.ROT;
+    } else if (t.k === "kopec") {
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), lowMat("#8C6142"));
+      dome.scale.set(J.KOPEC_R * 0.62, J.KOPEC_H, J.KOPEC_R * 0.62); g.add(dome);
+      const skirt = new THREE.Mesh(new THREE.CylinderGeometry(J.KOPEC_R * 0.62, J.KOPEC_R, 0.1, 12, 1, true), lowMat("#7A5236")); skirt.position.y = 0.0; g.add(skirt);
+      const mole = new THREE.Group();
+      const hd = new THREE.Mesh(new THREE.IcosahedronGeometry(0.17, 1), lowMat("#3B3346")); mole.add(hd);
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), lowMat("#FF8FA3")); nose.position.set(0, -0.02, 0.17); mole.add(nose);
+      for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 4), lowMat("#FFFFFF")); e.position.set(s * 0.07, 0.06, 0.14); mole.add(e); const p = new THREE.Mesh(new THREE.SphereGeometry(0.018, 5, 4), lowMat("#1E1B2E")); p.position.set(s * 0.07, 0.06, 0.17); mole.add(p); }
+      mole.position.set(0, J.KOPEC_H + 0.05, 0); g.add(mole); g.userData.mole = mole;
+    }
+    g.position.set(geo.x, h, geo.y);
+    if (ghostMode) g.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.55; o.material.depthWrite = false; } });
+    g.userData.t = t; g.userData.ring = ring;
+    return g;
+  }
+  function setTraps(list, mine, nShot) {
+    clear(trapG); traps = [];
+    for (const t of list) { const m = trapMesh(t); trapG.add(m); traps.push(m); m.userData.drop = 0; }
+    meSeat = mine; setBlades(nShot || 0, 0);
+  }
+  function dropTraps() { for (const m of traps) m.userData.drop = performance.now(); }
+  function setBlades(n, tick) { for (const m of traps) if (m.userData.rot) m.userData.rot.rotation.y = -J.bladeAngle(n, tick); }
+  // past patří někomu: na tahu jejího majitele je průsvitná (jeho míček nechá být)
+  function fadeOwn(shooter) {
+    for (const m of traps) {
+      const own = m.userData.t.by === shooter;
+      m.traverse(o => { if (o.material && o !== m.userData.ring) { o.material.transparent = true; o.material.opacity = own ? 0.35 : 1; o.material.depthWrite = !own; } });
+    }
+  }
+  function setGhost(t, ok) {
+    if (ghost) { trapG.remove(ghost); ghost = null; }
+    if (!t) return;
+    ghost = trapMesh(t, true);
+    ghost.userData.ring.material.color = col(ok ? "#FFFFFF" : "#FF3B30"); ghost.userData.ring.material.opacity = 1;
+    trapG.add(ghost);
+  }
+
+  // ---------- míčky ----------
+  function ballZ(k, x, y) { return J.surf(c, x, y).h + J.trapHeight(trapsData(), x, y, k) + J.R; }
+  const trapsData = () => traps.map(m => m.userData.t);
+  function setBall(k, b, show) {
+    const o = balls[k];
+    o.vis = !!(show && b && b.on && !b.in);
+    o.g.visible = o.sh.visible = o.vis; o.ring.visible = o.vis;
+    if (!o.vis) return;
+    o.x = b.x; o.y = b.y; place(k);
+  }
+  function place(k) {
+    const o = balls[k], z = ballZ(k, o.x, o.y);
+    o.g.position.set(o.x, z + o.hop, o.y);
+    o.sh.position.set(o.x, z - J.R + 0.015, o.y);
+    o.ring.position.set(o.x, z - J.R + 0.02, o.y);
+    // obličej natočený ke kameře, kousek před míčkem
+    const v = camera.position.clone().sub(o.g.position).normalize().multiplyScalar(J.R * 0.82);
+    o.face.position.copy(v);
+  }
+  for (const k of ["x", "o"]) balls[k].hop = 0;
+  function setFace(k, kind, ms) {
+    const o = balls[k];
+    if (ms) { o.until = performance.now() + ms; o.tmp = kind; } else { o.face0 = kind; if (!o.until) o.tmp = null; }
+    o.face.material.map = faceTex(ms ? kind : (o.until > performance.now() ? o.tmp : kind)); o.face.material.needsUpdate = true;
+  }
+  function turnRing(k) { for (const q of ["x", "o"]) balls[q].ring.material.opacity = q === k ? 0.9 : 0; }
+
+  // ---------- míření ----------
+  function setAim(k, ang, pow) {
+    const o = balls[k];
+    if (pow == null || pow <= 0.02) { dots.forEach(d => d.visible = false); arrow.visible = false; return; }
+    const ux = Math.cos(ang), uz = Math.sin(ang), len = 0.4 + pow * 3.2;
+    const n = Math.round(4 + pow * 10);
+    dots.forEach((d, i) => {
+      if (i >= n) { d.visible = false; return; }
+      const f = (i + 1) / n, x = o.x + ux * len * f, z = o.y + uz * len * f;
+      const ww = J.where(c, x, z);
+      d.visible = ww !== J.VOID;
+      d.position.set(x, J.surf(c, x, z).h + 0.03, z); d.material.opacity = 0.95 - f * 0.55; d.scale.setScalar(1 + pow * 0.6 * (1 - f));
+    });
+    const x = o.x + ux * (len + 0.15), z = o.y + uz * (len + 0.15);
+    arrow.visible = J.where(c, x, z) !== J.VOID; arrow.position.set(x, J.surf(c, x, z).h + 0.06, z);
+    arrow.rotation.set(-Math.PI / 2, 0, -ang - Math.PI / 2);
+    arrow.material.color = col(pow > 0.85 ? "#FFD23F" : "#FFFFFF");
+  }
+
+  // ---------- efekty ----------
+  const parts = [];
+  function burst(x, y, kind) {
+    const z = J.surf(c, x, y).h;
+    const n = kind === "voda" ? 10 : kind === "jamka" ? 14 : 6;
+    const colors = kind === "voda" ? ["#FFFFFF", "#9FE0FF"] : kind === "jamka" ? ["#FFD23F", "#FF6A3D", "#3E8BFF", "#57B947", "#FFFFFF"] : ["#FFFFFF"];
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(kind === "jamka" ? new THREE.PlaneGeometry(0.09, 0.05) : new THREE.TetrahedronGeometry(0.06), new THREE.MeshBasicMaterial({ color: colors[i % colors.length], side: THREE.DoubleSide, transparent: true }));
+      const a = i / n * Math.PI * 2;
+      m.position.set(x, z + 0.15, y);
+      m.userData.v = new THREE.Vector3(Math.cos(a) * (0.02 + Math.random() * 0.025), 0.05 + Math.random() * 0.04, Math.sin(a) * (0.02 + Math.random() * 0.025));
+      m.userData.life = 1; fx.add(m); parts.push(m);
+    }
+  }
+
+  // ---------- kamera ----------
+  const cam = { mode: "hole", tx: 0, ty: 0, tz: 0, dist: 20, yaw: 0, pitch: 1.0, zoom: 1, want: null, follow: null, panX: 0, panZ: 0 };
+  let aspect = 1, holeFit = { tx: 0, tz: 0, ty: 0, dist: 20, pitch: 1.0 };
+  function camPos(tx, ty, tz, dist, yaw, pitch) {
+    const cp = Math.cos(pitch);
+    return new THREE.Vector3(tx + Math.sin(yaw) * cp * dist, ty + Math.sin(pitch) * dist, tz + Math.cos(yaw) * cp * dist);
+  }
+  function fitHole() {
+    if (!c) return;
+    let maxH = 0; for (const h of c.hc) if (h > maxH) maxH = h;
+    // oblast trati (bez prázdného okraje)
+    let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let y = 0; y < c.H; y++) for (let x = 0; x < c.W; x++) if (c.type[y * c.W + x]) { x0 = Math.min(x0, x); z0 = Math.min(z0, y); x1 = Math.max(x1, x + 1); z1 = Math.max(z1, y + 1); }
+    const pitch = aspect > 1.2 ? 1.12 : 0.98;
+    const tx = (x0 + x1) / 2, tz = (z0 + z1) / 2 + 0.6, ty = maxH / 2;
+    const pts = [];
+    for (const x of [x0 - 0.3, x1 + 0.3]) for (const z of [z0 - 0.3, z1 + 0.3]) for (const y of [0, maxH + 0.5]) pts.push(new THREE.Vector3(x, y, z));
+    pts.push(new THREE.Vector3(c.cup[0], J.surf(c, c.cup[0], c.cup[1]).h + 1.4, c.cup[1]));
+    const m = margins(); applyOffset();
+    let lo = 4, hi = 80;
+    for (let it = 0; it < 24; it++) {
+      const d = (lo + hi) / 2;
+      camera.position.copy(camPos(tx, ty, tz, d, 0, pitch)); camera.lookAt(tx, ty, tz); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+      let ok = true;
+      for (const p of pts) { const q = p.clone().project(camera); if (q.x < -1 + m.l || q.x > 1 - m.r || q.y < -1 + m.b || q.y > 1 - m.t || q.z > 1) { ok = false; break; } }
+      if (ok) hi = d; else lo = d;
+    }
+    // posun cíle, aby střed trati seděl mezi okraji HUDu
+    holeFit = { tx, ty, tz: tz, dist: hi, pitch, shiftY: (m.b - m.t) / 2 };
+  }
+  // místo pro HUD v jednotkách NDC (0..2) – nastavuje main podle rozvržení
+  let hudPad = { t: 0.16, b: 0.22, l: 0.04, r: 0.04 };
+  const margins = () => hudPad;
+  function setMode(mode) { cam.mode = mode; cam.zoom = 1; cam.panX = cam.panZ = 0; }
+  function followYaw(k) {
+    const o = balls[k]; if (!c) return 0;
+    // směr k jamce po dráze: pár kroků z vzdálenostního pole
+    let x = Math.floor(o.x), y = Math.floor(o.y);
+    for (let s = 0; s < 4; s++) {
+      let best = null;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const X = x + a, Y = y + b; if (X < 0 || Y < 0 || X >= c.W || Y >= c.H) continue; const d = c.df[Y * c.W + X]; if (d < 1e8 && (!best || d < best.d)) best = { d, X, Y }; }
+      if (!best || (best.X === x && best.Y === y)) break; x = best.X; y = best.Y;
+    }
+    let fx = x + 0.5 - o.x, fz = y + 0.5 - o.y;
+    const dc = Math.hypot(c.cup[0] - o.x, c.cup[1] - o.y); if (dc < 4) { fx = c.cup[0] - o.x; fz = c.cup[1] - o.y; }
+    if (Math.abs(fx) + Math.abs(fz) < 1e-3) return 0;
+    return Math.atan2(-fx, -fz);
+  }
+  function frameBall(k, snap) {
+    cam.follow = k; const o = balls[k];
+    cam.want = { yaw: followYaw(k) };
+    if (snap) { cam.yaw = cam.want.yaw; cam.tx = o.x; cam.tz = o.y; }
+  }
+  function updateCam(dt) {
+    let tx, ty, tz, dist, yaw, pitch;
+    if (cam.mode === "ball" && cam.follow) {
+      const o = balls[cam.follow];
+      const k = 1 - Math.pow(0.002, dt);
+      cam.tx += (o.x - cam.tx) * k; cam.tz += (o.y - cam.tz) * k;
+      if (cam.want) { let d = cam.want.yaw - cam.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; cam.yaw += d * (1 - Math.pow(0.01, dt)); }
+      tx = cam.tx + cam.panX; tz = cam.tz + cam.panZ; ty = J.surf(c, cam.tx, cam.tz).h; dist = 6.2 * cam.zoom; yaw = cam.yaw; pitch = 0.78;
+    } else {
+      tx = holeFit.tx + cam.panX; ty = holeFit.ty; tz = holeFit.tz + cam.panZ; dist = holeFit.dist * cam.zoom; yaw = 0; pitch = holeFit.pitch;
+      if (cam.yaw !== 0) { let d = -cam.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; cam.yaw += d * (1 - Math.pow(0.01, dt)); yaw = cam.yaw; }
+    }
+    const p = camPos(tx, ty, tz, dist, yaw, pitch);
+    if (!cam.cur) cam.cur = { p: p.clone(), t: new THREE.Vector3(tx, ty, tz) };
+    const k2 = 1 - Math.pow(0.0005, dt);
+    cam.cur.p.lerp(p, k2); cam.cur.t.lerp(new THREE.Vector3(tx, ty, tz), k2);
+    camera.position.copy(cam.cur.p); camera.lookAt(cam.cur.t);
+    // HUD posun: optický střed mezi lištami
+    applyOffset();
+  }
+  function snapCam() { cam.cur = null; }
+  // optický střed mezi horní a spodní lištou HUDu
+  function applyOffset() { camera.setViewOffset(W0, H0, 0, (hudPad.b - hudPad.t) * H0 / 4, W0, H0); }
+
+  // ---------- přepočet obrazovky na dráhu ----------
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  function groundAt(px, py, h) {
+    const r = canvas.getBoundingClientRect();
+    ndc.set((px - r.left) / r.width * 2 - 1, -((py - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    let y = h == null ? 0 : h, hit = null;
+    for (let i = 0; i < (h == null ? 3 : 1); i++) {
+      const o = ray.ray.origin, d = ray.ray.direction;
+      if (Math.abs(d.y) < 1e-6) return null;
+      const t = (y - o.y) / d.y; if (t < 0) return null;
+      hit = { x: o.x + d.x * t, y: o.z + d.z * t };
+      if (h == null && c) y = J.surf(c, hit.x, hit.y).h;
+    }
+    return hit;
+  }
+  function toScreen(x, y, h) {
+    const v = new THREE.Vector3(x, h, y).project(camera), r = canvas.getBoundingClientRect();
+    return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
+  }
+
+  // ---------- přehrání úderu ----------
+  let anim = null;
+  function playFrames(fr, n, onEv, done) {
+    anim = { fr, n, t0: performance.now(), i: 0, onEv, done, speed: 1 };
+  }
+  function skip() { if (anim) anim.speed = 4; }
+
+  // ---------- smyčka ----------
+  let W0 = 1, H0 = 1, last = performance.now(), running = true;
+  function resize() {
+    const r = canvas.getBoundingClientRect(); W0 = Math.max(1, r.width); H0 = Math.max(1, r.height);
+    renderer.setSize(W0, H0, false); aspect = W0 / H0; camera.aspect = aspect; camera.clearViewOffset(); camera.updateProjectionMatrix(); fitHole();
+  }
+  function frame(now) {
+    if (!running) return;
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!c) return;
+    if (anim) {
+      const tick = Math.floor((now - anim.t0) / 1000 * 60 * anim.speed);
+      const fr = anim.fr, N = fr.x.length / 2;
+      const i = Math.min(N - 1, tick);
+      for (const k of ["x", "o"]) if (balls[k].vis) { balls[k].x = fr[k][i * 2]; balls[k].y = fr[k][i * 2 + 1]; }
+      setBlades(anim.n, i);
+      while (anim.i <= i && anim.onEv) { anim.onEv(anim.i); anim.i++; }
+      if (tick >= N - 1) { const d = anim.done; anim = null; d && d(); }
+    }
+    for (const k of ["x", "o"]) {
+      const o = balls[k];
+      if (o.until && now > o.until) { o.until = 0; o.face.material.map = faceTex(o.face0); o.face.material.needsUpdate = true; }
+      if (o.vis) place(k);
+    }
+    // pasti: kachna se pohupuje, krtek kouká, pád při odhalení
+    for (const m of traps) {
+      const u = m.userData, base = J.surf(c, J.trapGeom(u.t).x, J.trapGeom(u.t).y).h;
+      if (u.drop) { const t = Math.min(1, (now - u.drop) / 650), e = t < 1 ? (1 - t) * (1 - t) * 3 - Math.sin(t * Math.PI) * 0.15 : 0; m.position.y = base + Math.max(-0.05, e); if (t >= 1) u.drop = 0; }
+      if (u.duck) u.duck.position.y = 0.1 + Math.sin(now / 420) * 0.02;
+      if (u.mole) u.mole.position.y = J.KOPEC_H + 0.02 + Math.max(0, Math.sin(now / 900)) * 0.06;
+    }
+    if (ghost && ghost.userData.rot) ghost.userData.rot.rotation.y = -now / 1000 * 1.8;
+    if (flag) flag.userData.cloth.rotation.y = Math.sin(now / 700) * 0.25;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const m = parts[i], u = m.userData;
+      m.position.add(u.v); u.v.y -= 0.004; u.life -= dt * 1.2; m.rotation.x += 0.2; m.rotation.y += 0.13;
+      m.material.opacity = Math.max(0, u.life);
+      if (u.life <= 0) { fx.remove(m); m.geometry.dispose(); parts.splice(i, 1); }
+    }
+    updateCam(dt);
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(frame);
+  addEventListener("resize", resize);
+  resize();
+
+  return {
+    setHole, setTraps, dropTraps, setBlades, fadeOwn, setGhost, setBall, setFace, turnRing, setAim, burst,
+    setMode, frameBall, snapCam, groundAt, toScreen, playFrames, skip, resize,
+    get mode() { return cam.mode; }, cam, balls, get busy() { return !!anim; },
+    setHudPad(p) { hudPad = p; fitHole(); },
+    zoomBy(f) { cam.zoom = Math.max(0.45, Math.min(cam.mode === "ball" ? 2.6 : 1.5, cam.zoom * f)); },
+    pan(dx, dz) { cam.panX += dx; cam.panZ += dz; },
+    stop() { running = false; },
+    renderer, camera,
+  };
+}
