@@ -1,5 +1,26 @@
 # Worklog – Jamka na míru
 
+## 2026-10-31 ~22:00 – návrh A vybrán, opravy design-eye, testy (session účtu P)
+Rozhodnutí: návrh A („čistý stůl“) je jediný. Návrh B odstraněn (CSS `.navrh-b`, `#side`, `?navrh`, `design/b-*`), `body.navrh-a` je výchozí.
+Hotovo (opravy v pořadí zadání):
+1. Šikmé mantinely: příčina byla navinutí trojúhelníků (vnitřní stěna, horní hrana i zkosené podlahové trojúhelníky mířily dolů, stejné jako u rovných zdí, jen u zkosení to bylo vidět nejvíc). Materiál tratě je `DoubleSide`, zdi i zkosení jsou plné.
+2. Kamera `ball`: míček v dolní třetině volné plochy, před ním cesta k jamce (celá, když je jamka do 8 políček, jinak prvních 8), sklon 1,0 / 1,12 na výšku; `fitBall` dopočítá vzdálenost projekcí. Oddálit a zoom zůstaly (zoom v módu míček max 1,7×).
+3. Výsledek jamky je v panelu `#dock` (`.res`), scéna najede na jamku (`cam.mode = "cup"`), míčky zapuštěné v jamce, veselé, poskakují, konfety. Lišta „Jamka N“ ukazuje dohranou jamku.
+4. HUD z jednoho stavu: `G = st.g` hned po doběhu úderu, štítky (`statusOf`, `onTurn`, `faceOf`) i výsledek čtou jen `G`; duel test porovnává součty ve štítcích se `state().sc` po každém úderu.
+5. Výrazy: štítky mění obličej (staví past = škodolibý, chytila past = zamračený, voda = smutný, vedu = spokojený, v jamce = veselý); konec partie: veselý vítěz a zkroušený poražený vedle sebe; ve fázi pasti jsou oba míčky na odpališti (škodolibý, po postavení „koukají“).
+6. Štítky: druhý řádek nikdy prázdný, na iPhonu kompaktní 44 px (jméno + součet).
+7. Spodek mobilu: síla úderu je v panelu, `#tools` nahrazen jedním tlačítkem s nabídkou (skórkarta, zvuk, celá obrazovka). Na výšku vpravo nahoře, na šířku vlevo (jinak ho kryje panel).
+8. Dekorace: pryč palmy a kameny, 2–3 klidné prvky na jamku (kulatý strom, slunečník, smrček) vedle nebo za tratí, mimo zákryt. Tah hlásí jen štítek (kroužek), panel bez kroužku. Z návrhu B: žluté primární tlačítko `--sun` a žlutá vybraná karta pasti.
+Mimo zadání: `createRoom` zakládá i prázdný deník `o` (jinak 404 v konzoli při načtení místnosti); `__jm.viewInfo`.
+
+Testy (server `python -m http.server 8808`):
+- `node tests/sim.test.cjs` → exit 0, 14/14 PASS (~10 s): shoot deterministický 60/60, replay shodný, 300 jamek hratelných (par 2:15, 3:182, 4:100, 5:3, nejdéle 55 ms), 3 partie za sebou (3 místnosti) bez shodné jamky.
+- `node tests/duel.cjs` → exit 0, 36/36 PASS, celá partie 6 jamek, 41 úderů, 196 s, skutečný mantledb. Bit po bitu stejný stav ve 3 prohlížečích po každém úderu (41 porovnání, 0 rozdílů), průměr 2,8 s od úderu do shody. Pojistka introMine ověřena (nový kontext nesedne na místo zakladatele, přijetí pod jeho jménem odmítnuto i `  mark `). První běh `MAXHOLES=2` měl 1 FAIL (404 pro deník `o`), opraveno.
+- `node tests/perf.cjs` → exit 0. WebKit iPhone 13 (emulace): `JM.hole` 6 jamek za 98–250 ms (průměr 195 ms, nejdelší jamka 93 ms), FPS při úderu 15,9–16,3 (rAF za 3 s), JS vykreslení 0,9 ms, scéna 32 draw calls a 1 452 trojúhelníků. FPS nezávisí na rozlišení (DPR 2, 1, 0,5 stejně ~15), `about:blank` ve stejném WebKitu 62 FPS, Chromium SwiftShader 31–35 FPS: úzké hrdlo je softwarové WebGL v Playwright WebKitu na Windows, ne naše scéna.
+- `node tests/rendery.cjs` → exit 0, bez chyb v konzoli. Rendery `design/a-{desktop,iphone}-{past,uder,vysledek,konec}.png`.
+Zbývá: design-eye „profi indie hra“ (max 3 kola), repo `sachasportrezervace-arch/jamka-na-miru` + Pages + živý test, push až po verdiktu.
+NEOVĚŘENO: skutečný iPhone (FPS, dotyky, Přidat na plochu, safe-area), zvuk, fullscreen, pinch zoom, zatáčky/svahy všech témat za pohybu, iPhone na šířku (jen snímek menu a pasti, scéna jamky je tam malá), dekorace u všech témat (viděny pláž a zima), hra přes skutečné mobilní sítě.
+
 ## 2026-10-31 ~20:00 – první spuštění v prohlížeči (session účtu P)
 - Hra poběžela napoprvé: celá partie (6 jamek, oba hráči, pasti, údery přes `__jm`) projde v Chromiu 1440x900 i WebKitu iPhone 13
   bez chyb v konzoli; skóre je v obou prohlížečích totožné (determinismus sedí na `sc` celé partie).

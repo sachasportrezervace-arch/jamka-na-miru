@@ -15,7 +15,7 @@ const other = J.other;
 const sc = createScene($("cv"));
 let room = null;                 // { id, meta, seat, docs: {x, o}, w, local }
 let G = null, shown = 0, queue = [], busy = false, gameKey = "", holeOn = -1, fresh = true;
-const ui = { sel: null, ghost: null, rot: 0, aim: null, camAuto: true };
+const ui = { sel: null, ghost: null, rot: 0, aim: null, camAuto: true, mood: { x: null, o: null }, result: null };
 
 // ---------- toast ----------
 let toastT = 0;
@@ -52,8 +52,17 @@ const sound = (() => {
     lip: () => tone(700, 0.07, "triangle", 0.12, 0.8),
   };
 })();
-$("bSound").addEventListener("click", () => { const on = sound.toggle(); paintSound(); toast(on ? "Zvuk zapnutý." : "Zvuk vypnutý."); });
-function paintSound() { $("bSound").classList.toggle("off", !sound.on); $("bSound").setAttribute("aria-label", sound.on ? "Vypnout zvuk" : "Zapnout zvuk"); }
+// nabídka: skórkarta, zvuk, celá obrazovka v jednom tlačítku
+function closeMenu() { $("menu").hidden = true; $("bMenu").setAttribute("aria-expanded", "false"); }
+$("bMenu").addEventListener("click", () => {
+  const open = $("menu").hidden; $("menu").hidden = !open; $("bMenu").setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) document.body.classList.remove("cardOpen");
+});
+document.addEventListener("pointerdown", e => { if (!$("menu").hidden && !$("menu").contains(e.target) && !$("bMenu").contains(e.target)) closeMenu(); }, true);
+$("bCard").addEventListener("click", () => { closeMenu(); document.body.classList.toggle("cardOpen"); });
+$("card").addEventListener("click", () => document.body.classList.remove("cardOpen"));
+$("bSound").addEventListener("click", () => { const on = sound.toggle(); paintSound(); closeMenu(); toast(on ? "Zvuk zapnutý." : "Zvuk vypnutý."); });
+function paintSound() { $("bSound").classList.toggle("off", !sound.on); $("bSound").querySelector("span").textContent = sound.on ? "Zvuk zapnutý" : "Zvuk vypnutý"; }
 paintSound();
 
 // ---------- celá obrazovka / plocha na iPhonu ----------
@@ -68,6 +77,7 @@ const platform = (() => {
   if (platform.canFs && !platform.standalone) {
     btn.hidden = false;
     btn.addEventListener("click", async () => {
+      closeMenu();
       try { if (isFs()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document); else { const r = document.documentElement; await (r.requestFullscreen || r.webkitRequestFullscreen).call(r, { navigationUI: "hide" }); } }
       catch { toast("Prohlížeč celou obrazovku nepustil."); }
     });
@@ -83,9 +93,8 @@ const platform = (() => {
 function layout() {
   sc.resize();
   const h = innerHeight, top = $("topbar").getBoundingClientRect().bottom, bot = h - $("dock").getBoundingClientRect().top;
-  const side = $("side") && getComputedStyle($("side")).display !== "none" ? $("side").getBoundingClientRect() : null;
   document.body.style.setProperty("--dockH", ($("dock").offsetHeight && getComputedStyle($("dock")).opacity !== "0" ? $("dock").offsetHeight + 8 : 0) + "px");
-  sc.setHudPad({ t: Math.min(0.5, (top + 8) / h * 2), b: Math.min(0.95, (bot + 8) / h * 2), l: side ? (side.right + 8) / innerWidth * 2 : 0.04, r: 0.04 });
+  sc.setHudPad({ t: Math.min(0.5, (top + 8) / h * 2), b: Math.min(0.95, (bot + 8) / h * 2), l: 0.04, r: 0.04 });
 }
 addEventListener("resize", () => setTimeout(layout, 30));
 
@@ -103,9 +112,19 @@ function totals(p) {
   G.sc[p].forEach((v, i) => { s += v; par += G.pars[i]; });
   return { s, par };
 }
-const ballSvg = (p, face = "idle") => `<svg viewBox="0 0 40 40" class="bi" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="${PLAYER[p].ball}"/><circle cx="20" cy="20" r="18" fill="none" stroke="${PLAYER[p].deep}" stroke-width="2.4" opacity=".5"/>${face === "happy"
-  ? '<path d="M11 18q3-4 6 0M23 18q3-4 6 0" stroke="#1E1B2E" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M13 24q7 8 14 0z" fill="#1E1B2E"/>'
-  : '<ellipse cx="14" cy="18" rx="4.3" ry="4.8" fill="#fff"/><ellipse cx="26" cy="18" rx="4.3" ry="4.8" fill="#fff"/><circle cx="14.5" cy="18.8" r="2.3" fill="#1E1B2E"/><circle cx="26.5" cy="18.8" r="2.3" fill="#1E1B2E"/><path d="M15 26q5 4 10 0" stroke="#1E1B2E" stroke-width="2.4" fill="none" stroke-linecap="round"/>'}</svg>`;
+const INK = "#1E1B2E";
+const EYE = (dy = 0, px = 0.5, py = 0.8) => `<ellipse cx="14" cy="${18 + dy}" rx="4.3" ry="4.8" fill="#fff"/><ellipse cx="26" cy="${18 + dy}" rx="4.3" ry="4.8" fill="#fff"/><circle cx="${14 + px}" cy="${18 + dy + py}" r="2.3" fill="${INK}"/><circle cx="${26 + px}" cy="${18 + dy + py}" r="2.3" fill="${INK}"/>`;
+const STROKE = (d, w = 2.4) => `<path d="${d}" stroke="${INK}" stroke-width="${w}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+const FACES = {
+  idle: () => EYE() + STROKE("M15 26q5 4 10 0"),
+  content: () => EYE(0, 0, 0.3) + STROKE("M12.5 25q7.5 7 15 0") + '<ellipse cx="9" cy="24" rx="2.2" ry="1.4" fill="#FF8FA3" opacity=".75"/><ellipse cx="31" cy="24" rx="2.2" ry="1.4" fill="#FF8FA3" opacity=".75"/>',
+  happy: () => STROKE("M11 18q3-4 6 0M23 18q3-4 6 0", 2.6) + `<path d="M13 24q7 8 14 0z" fill="${INK}"/>`,
+  smug: () => `<ellipse cx="14" cy="19.5" rx="4.3" ry="3.4" fill="#fff"/><ellipse cx="26" cy="19.5" rx="4.3" ry="3.4" fill="#fff"/><circle cx="16" cy="19.8" r="2.1" fill="${INK}"/><circle cx="28" cy="19.8" r="2.1" fill="${INK}"/>` + STROKE("M8.5 14l10 3.2M31.5 14l-10 3.2", 2.7) + STROKE("M14 26.5q7 4 13-3.5"),
+  grr: () => `<ellipse cx="14" cy="19.5" rx="3.9" ry="3.9" fill="#fff"/><ellipse cx="26" cy="19.5" rx="3.9" ry="3.9" fill="#fff"/><circle cx="14.4" cy="20.2" r="2.1" fill="${INK}"/><circle cx="25.6" cy="20.2" r="2.1" fill="${INK}"/>` + STROKE("M8.5 12.5l10.5 5.5M31.5 12.5L21 18", 3) + STROKE("M14 29q6-5.5 12 0", 2.6),
+  sad: () => EYE(1.5, 0, 1.6) + STROKE("M8.5 16.5l9.5-4.5M31.5 16.5L22 12", 2.6) + STROKE("M14 29.5q6-5.5 12 0", 2.6) + `<path d="M32.5 23q3 4.2 0 6.2q-3-2 0-6.2z" fill="#7FD3FF"/>`,
+};
+FACES.wet = FACES.sad;
+const ballSvg = (p, face = "idle") => `<svg viewBox="0 0 40 40" class="bi" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="${PLAYER[p].ball}"/><circle cx="20" cy="20" r="18" fill="none" stroke="${PLAYER[p].deep}" stroke-width="2.4" opacity=".5"/>${(FACES[face] || FACES.idle)()}</svg>`;
 const TRAP_ICON = {
   mlyn: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="21" fill="#F25F5C" opacity=".14"/><g transform="rotate(20 24 24)"><rect x="22" y="5" width="4" height="38" rx="2" fill="#F25F5C"/><rect x="5" y="22" width="38" height="4" rx="2" fill="#F25F5C"/></g><circle cx="24" cy="24" r="6.5" fill="#F6E7C8" stroke="#1E1B2E" stroke-width="2"/></svg>',
   louze: '<svg viewBox="0 0 48 48"><path d="M7 27c0-8 9-12 17-12s18 3 18 11-9 12-18 12S7 35 7 27z" fill="#6FA6C4"/><path d="M15 25q4-4 9-3" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/><ellipse cx="30" cy="24" rx="6" ry="4" fill="#FFD23F"/><circle cx="34" cy="19" r="3.2" fill="#FFD23F"/><path d="M37 19l3 .8-3 1z" fill="#FF8A3D"/></svg>',
@@ -113,22 +132,50 @@ const TRAP_ICON = {
   kopec: '<svg viewBox="0 0 48 48"><path d="M4 38q20-32 40 0z" fill="#8C6142"/><circle cx="24" cy="19" r="7" fill="#3B3346"/><circle cx="21.3" cy="17.5" r="1.6" fill="#fff"/><circle cx="26.7" cy="17.5" r="1.6" fill="#fff"/><circle cx="24" cy="21.5" r="2" fill="#FF8FA3"/></svg>',
 };
 
-// ---------- HUD ----------
+// ---------- HUD: všechna čísla a texty z jednoho stavu G ----------
+const rany = n => n === 1 ? "rána" : n >= 2 && n <= 4 ? "rány" : "ran";
+// výraz podle stavu: stavím past = škodolibý, chytila mě past = zamračený, vedu = spokojený, na konci veselý a zkroušený
+function faceOf(p) {
+  if (!G) return "idle";
+  if (ui.result) return ui.result.face[p];
+  if (G.ph === "end") return G.win === "=" ? "content" : G.win === p ? "happy" : "sad";
+  if (ui.mood[p]) return ui.mood[p];
+  if (G.ph === "trap") return G.pend[p] === null ? "smug" : "idle";
+  if (G.done[p]) return "happy";
+  if (G.pars.length && totals(p).s < totals(other(p)).s) return "content";
+  return "idle";
+}
+// druhý řádek štítku: nikdy prázdný
+function statusOf(p) {
+  const joined = p === "x" || !!room.meta.so || room.local;
+  if (!joined) return "čeká na přijetí";
+  if (ui.result) return `jamka · ${ui.result.v[p]} ${rany(ui.result.v[p])}`;
+  if (G.ph === "end") return G.win === "=" ? "remíza" : G.win === p ? "vítěz" : "druhý";
+  if (G.ph === "trap") return G.pend[p] === null ? (isMe(p) ? "stavíš past" : "staví past") : "past stojí";
+  if (G.done[p]) return `v jamce · ${G.str[p]} ${rany(G.str[p])}`;
+  if (G.p === p) return `na tahu · ${G.str[p] + 1}. rána`;
+  return G.str[p] ? `čeká · ${G.str[p]} ${rany(G.str[p])}` : "čeká na odpališti";
+}
+// kdo je teď na řadě (jeden zvýrazněný štítek)
+function onTurn(p) {
+  if (ui.result) return false;
+  if (G.ph === "play") return G.p === p;
+  if (G.ph === "trap") return G.pend[p] === null && (!room.local || p === localMe());
+  return false;
+}
 function paintHud() {
   if (!room || !G) return;
   for (const p of ["x", "o"]) {
-    const t = totals(p), cur = G.ph === "play" || G.ph === "trap" ? G.str[p] : 0;
-    const el = $("chip" + p.toUpperCase());
-    const joined = p === "x" || !!room.meta.so || room.local;
-    el.classList.toggle("turn", G.ph === "play" && G.p === p);
-    el.innerHTML = `${ballSvg(p, G.ph === "end" && G.win === p ? "happy" : "idle")}<span class="nm">${esc(nameOf(p))}${isMe(p) ? ' <i>ty</i>' : ""}</span>
-      <span class="tot"><b>${t.s}</b><em>${t.par ? rel(t.s - t.par) : "&nbsp;"}</em></span>
-      ${joined ? (G.ph === "play" ? `<span class="cur">${G.done[p] ? "v jamce" : cur ? cur + ". rána" : "na odpališti"}</span>` : "") : '<span class="cur">čeká na přijetí</span>'}`;
+    const t = totals(p), el = $("chip" + p.toUpperCase());
+    el.classList.toggle("turn", onTurn(p));
+    el.innerHTML = `${ballSvg(p, faceOf(p))}<span class="nm">${esc(nameOf(p))}${isMe(p) ? ' <i>ty</i>' : ""}</span>
+      <span class="tot"><b>${t.s}</b><em>${G.pars.length ? rel(t.s - t.par) : "ran"}</em></span>
+      <span class="cur">${statusOf(p)}</span>`;
   }
-  const c = course();
+  const c = ui.result ? J.hole(G.seed, ui.result.h) : course();     // při výsledku jamky ukazuje lišta jamku, která se právě dohrála
   if (c) {
-    const m = J.MODS[c.mod];
-    $("holePill").innerHTML = `<b>Jamka ${G.hole + 1}<span>/6</span></b><span class="par">Par ${c.par}</span>${c.mod !== "klid" ? `<span class="mod">${esc(m.name)}</span>` : ""}`;
+    const m = J.MODS[c.mod], hn = ui.result ? ui.result.h : G.hole;
+    $("holePill").innerHTML = `<b>Jamka ${hn + 1}<span>/6</span></b><span class="par">Par ${c.par}</span>${c.mod !== "klid" ? `<span class="mod">${esc(m.name)}</span>` : ""}`;
   } else $("holePill").innerHTML = `<b>Konec partie</b>`;
   paintCard();
 }
@@ -143,13 +190,20 @@ function paintCard() {
   $("card").innerHTML = `<table><thead><tr><th></th>${[1, 2, 3, 4, 5, 6].map(i => `<td>${i}</td>`).join("")}<td class="sum">Σ</td></tr></thead>
     <tbody><tr class="r-par"><th>Par</th>${pars}<td class="sum">${G.pars.reduce((a, b) => a + b, 0) || ""}</td></tr>${rows}</tbody></table>`;
 }
-// spodní lišta: co teď dělat
+// spodní lišta: co teď dělat (a výsledek jamky)
 function paintDock() { paintDock0(); requestAnimationFrame(layout); }
+function resultHtml(r) {
+  const win = r.v.x < r.v.o ? "x" : r.v.o < r.v.x ? "o" : "=";
+  const head = win === "=" ? "Jamka remíza" : room.local || !room.seat ? `Jamku bere ${esc(nameOf(win))}` : win === room.seat ? "Jamku bereš ty" : `Jamku bere ${esc(nameOf(win))}`;
+  const rows = ["x", "o"].map(p => `<div class="rl r-${p}${win === p ? " w" : ""}">${ballSvg(p, r.face[p])}<span>${esc(nameOf(p))}</span><b>${r.v[p]}</b><em>${r.v[p] === 1 ? "eso!" : rel(r.v[p] - r.par)}</em></div>`).join("");
+  return `<div class="res"><div class="rh"><b>${head}</b><span>jamka ${r.h + 1} · par ${r.par}</span></div>${rows}</div>`;
+}
 function paintDock0() {
-  const d = $("dock"), m = me(), c = course();
-  d.className = "dock";
+  const d = $("dock"), m = me();
+  d.className = "";
   if (!room || !G) { d.innerHTML = ""; return; }
-  if (busy) { d.innerHTML = `<div class="say">${G.ph === "play" || G.ph === "trap" ? "" : ""}</div>`; d.classList.add("quiet"); return; }
+  if (ui.result) { d.innerHTML = resultHtml(ui.result); return; }
+  if (busy) { d.innerHTML = '<div class="say"></div>'; d.classList.add("quiet"); return; }
   if (G.ph === "trap") {
     const mine = m && G.pend[m];
     if (m && G.pend[m] === null) {
@@ -171,9 +225,8 @@ function paintDock0() {
   if (G.ph === "play") {
     const p = G.p, n = G.str[p] + 1;
     if (m === p) {
-      d.classList.add("mine");
-      d.innerHTML = `<div class="say"><b>${room.local ? esc(nameOf(p)) + " je na řadě" : "Jsi na řadě"} · ${n}. rána</b><span>Táhni prstem zpátky od míčku a pusť. Čím dál, tím silněji.</span></div>`;
-    } else d.innerHTML = `<div class="say"><b>Hraje ${esc(nameOf(p))}</b><span>${n}. rána · ${room.seat ? "ty jsi další" : "přihlížíš"}</span></div>`;
+      d.innerHTML = `<div class="aimrow"><div class="say"><b>${room.local ? esc(nameOf(p)) : "Tvůj tah"} · ${n}. rána</b><span>Táhni zpátky od míčku a pusť.</span></div><div id="pow"><i></i><b>0 %</b></div></div>`;
+    } else d.innerHTML = `<div class="say"><b>Hraje ${esc(nameOf(p))} · ${n}. rána</b><span>${!room.seat ? "Přihlížíš." : G.done[m] ? "Ty už jsi v jamce." : "Potom jsi na řadě ty."}</span></div>`;
     return;
   }
   d.innerHTML = "";
@@ -215,16 +268,18 @@ function enterState(snap) {
   hideView();
   const c = course();
   if (holeOn !== G.hole) {
-    holeOn = G.hole; sc.setHole(c); sc.setMode("hole"); sc.snapCam(); ui.sel = null; ui.ghost = null;
+    holeOn = G.hole; sc.setHole(c); sc.setMode("hole"); sc.snapCam(); ui.sel = null; ui.ghost = null; ui.mood = { x: null, o: null };
     if (!snap) holeIntro(c);
   }
   const m = me();
   sc.setTraps(G.ph === "play" ? G.traps : (m && G.pend[m] ? [G.pend[m]] : []), m, G.n);
   for (const k of ["x", "o"]) {
-    const b = G.balls[k];
-    const show = G.ph === "play" && (b.on ? !b.in : G.p === k);
-    sc.setBall(k, b.on ? b : { x: c.tee[0], y: c.tee[1], on: true, in: false }, show);
-    sc.setFace(k, "idle");
+    const b = G.balls[k], trap = G.ph === "trap";
+    // ve fázi pasti stojí oba míčky na odpališti vedle sebe a koukají (škodolibě, dokud staví)
+    const show = trap || (G.ph === "play" && (b.on ? !b.in : G.p === k));
+    const tee = { x: c.tee[0] + (trap ? (k === "x" ? -1 : 1) * J.R * 1.5 : 0), y: c.tee[1], on: true, in: false };
+    sc.setBall(k, b.on ? b : tee, show);
+    sc.setFace(k, trap ? (G.pend[k] === null ? "smug" : "peek") : "idle");
   }
   sc.turnRing(G.ph === "play" ? G.p : null);
   if (G.ph === "play") {
@@ -238,7 +293,7 @@ function enterState(snap) {
 function holeIntro(c) {
   const m = J.MODS[c.mod], el = $("intro");
   el.innerHTML = `<div class="hi"><span class="no">Jamka ${G.hole + 1}</span><b>Par ${c.par}</b><span class="th">${esc(J.THEME_NAMES[c.th])}</span>${c.mod !== "klid" ? `<p><b>${esc(m.name)}.</b> ${esc(m.desc)}</p>` : ""}</div>`;
-  el.classList.add("on"); clearTimeout(holeIntro.t); holeIntro.t = setTimeout(() => el.classList.remove("on"), 2600);
+  el.classList.add("on"); clearTimeout(holeIntro.t); holeIntro.t = setTimeout(() => el.classList.remove("on"), 2200);
 }
 async function animate(st) {
   if (st.kind === "t") {
@@ -255,6 +310,7 @@ async function animate(st) {
   }
   // úder: přepočítej snímky ze stavu před úderem (stejné vstupy = stejný výsledek jako v replay)
   const g0 = st.g0, c = J.hole(g0.seed, g0.hole);
+  ui.mood[st.by] = null;
   if (holeOn !== g0.hole) enterStateFor(g0);
   sc.setTraps(g0.traps, me(), g0.n); sc.fadeOwn(st.by);
   const fr = { x: [], o: [] }, by = st.by;
@@ -276,8 +332,8 @@ async function animate(st) {
       if (e.e === "zed") sound.wall(e.v || 60);
       else if (e.e === "pero") { sound.spring(); sc.setFace(e.b, "fast", 700); }
       else if (e.e === "mlyn") { sound.mill(); sc.setFace(e.b, "dizzy", 1300); }
-      else if (e.e === "past") { sc.setFace(e.b, e.k === "louze" ? "worry" : "dizzy", 1300); if (e.by) sc.setFace(e.by, "smug", 1800); }
-      else if (e.e === "voda") { sound.splash(); sc.burst(e.x, e.y, "voda"); sc.setFace(e.b, "wet", 1800); toast(e.b === by ? "Žbluňk! Zpátky na místo a rána navíc." : "Žbluňk!", 2200); }
+      else if (e.e === "past") { sc.setFace(e.b, e.k === "louze" ? "worry" : "dizzy", 1300); if (e.by) sc.setFace(e.by, "smug", 1800); ui.mood[e.b] = "grr"; if (e.by) ui.mood[e.by] = "smug"; paintHud(); }
+      else if (e.e === "voda") { sound.splash(); sc.burst(e.x, e.y, "voda"); sc.setFace(e.b, "wet", 1800); ui.mood[e.b] = "sad"; paintHud(); toast(e.b === by ? "Žbluňk! Zpátky na místo a rána navíc." : "Žbluňk!", 2200); }
       else if (e.e === "jamka") { sound.cup(); sc.burst(c.cup[0], c.cup[1], "jamka"); vis[e.b] = false; sc.setBall(e.b, null, false); }
       else if (e.e === "lip") { sound.lip(); sc.setFace(e.b, "worry", 900); }
       else if (e.e === "srazka") sound.wall(120);
@@ -285,16 +341,24 @@ async function animate(st) {
     }
   }, done));
   sc.setBlades(g0.n, res.ticks);
-  // konec jamky / partie
+  G = st.g; paintHud();                                  // od teď všude čísla po úderu (jeden stav)
+  // konec jamky / partie: výsledek v panelu dole, scéna ukáže míček v jamce
   if (st.g.hole !== g0.hole || st.g.ph === "end") {
-    const h = g0.hole, par = c.par;
-    await sleep(500);
-    const line = p => { const v = st.g.sc[p][h]; return `<div class="hr r-${p}">${ballSvg(p, v < par ? "happy" : "idle")}<span>${esc(nameOf(p))}</span><b>${v}</b><em>${v === 1 ? "eso!" : rel(v - par)}</em></div>`; };
-    const el = $("intro");
-    el.innerHTML = `<div class="hi res"><span class="no">Jamka ${h + 1} · par ${par}</span>${line("x")}${line("o")}</div>`;
-    el.classList.add("on");
-    await sleep(2300);
-    el.classList.remove("on");
+    const h = g0.hole, par = c.par, v = { x: st.g.sc.x[h], o: st.g.sc.o[h] }, cap = J.capOf(c);
+    await sleep(450);
+    const best = Math.min(v.x, v.o);
+    const face = {}, items = [];
+    for (const p of ["x", "o"]) {
+      const holed = v[p] <= cap;
+      face[p] = !holed ? "sad" : v[p] === best ? "happy" : v[p] - best >= 2 ? "sad" : "idle";
+      const last = fr[p];
+      items.push({ k: p, holed, face: face[p], x: last[last.length - 2], y: last[last.length - 1] });
+    }
+    ui.result = { h, par, v, face };
+    sc.showCup(items); sound.cup();
+    paintHud(); paintDock();
+    await sleep(3000);
+    ui.result = null; paintHud(); paintDock();
     await sleep(250);
   } else await sleep(350);
 }
@@ -345,6 +409,7 @@ const cv = $("cv"), pts = new Map();
 let pinch = null, pan = null;
 cv.addEventListener("pointerdown", e => {
   cv.setPointerCapture(e.pointerId);
+  document.body.classList.remove("cardOpen");
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; ui.aim = null; sc.setAim(me() || "x", 0, 0); pan = null; return; }
   if (!G || busy) return startPan(e);
@@ -366,8 +431,8 @@ cv.addEventListener("pointermove", e => {
     if (!g0 || !g1) return;
     ui.aim.pow = Math.min(1, px / full); ui.aim.ang = Math.atan2(g0.y - g1.y, g0.x - g1.x);
     sc.setAim(m, ui.aim.ang, ui.aim.pow);
-    $("pow").style.setProperty("--p", ui.aim.pow.toFixed(3)); $("pow").classList.toggle("on", ui.aim.pow > 0.02);
-    $("pow").querySelector("b").textContent = Math.round(ui.aim.pow * 100) + " %";
+    const pw = $("pow");
+    if (pw) { pw.style.setProperty("--p", ui.aim.pow.toFixed(3)); pw.classList.toggle("on", ui.aim.pow > 0.02); pw.querySelector("b").textContent = Math.round(ui.aim.pow * 100) + " %"; }
     return;
   }
   if (pan) {
@@ -382,7 +447,7 @@ function endPtr(e) {
   if (ui.drag) { ui.drag = false; return; }
   if (ui.aim) {
     const a = ui.aim; ui.aim = null; const m = me();
-    sc.setAim(m, 0, 0); $("pow").classList.remove("on");
+    sc.setAim(m, 0, 0); $("pow")?.classList.remove("on");
     if (e.type === "pointercancel" || a.pow < 0.05) { sc.setFace(m, "idle"); return; }
     let A = Math.round(a.ang / (Math.PI * 2) * J.ANG); A = ((A % J.ANG) + J.ANG) % J.ANG;
     fire(A, Math.max(40, Math.round(a.pow * 1000)));
@@ -405,7 +470,6 @@ function paintCam() {
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.3-4.3M8 11h6"/></svg><span>Oddálit</span>';
   $("bCam").hidden = !G || G.ph !== "play";
 }
-$("bCard").addEventListener("click", () => document.body.classList.toggle("cardOpen"));
 
 // ---------- výsledek partie a odveta ----------
 function series() {
@@ -423,7 +487,7 @@ function showEnd() {
   const oppDoc = room.seat ? room.docs[other(room.seat)] || {} : {};
   const myNext = room.seat && (mine.gi || 0) > info.gi, oppNext = room.seat && (oppDoc.gi || 0) > info.gi;
   showView("end", `<div class="endcard">
-    <div class="win">${G.win === "=" ? ballSvg("x", "happy") + ballSvg("o", "happy") : ballSvg(G.win, "happy")}</div>
+    <div class="endpair">${G.win === "=" ? ["x", "o"].map(p => `<div class="who">${ballSvg(p, "content")}<span>${esc(nameOf(p))}</span></div>`).join("") : `<div class="who win">${ballSvg(G.win, "happy")}<span>${esc(nameOf(G.win))}</span></div><div class="who lose">${ballSvg(other(G.win), "sad")}<span>${esc(nameOf(other(G.win)))}</span></div>`}</div>
     <h2>${head}</h2>
     <p class="score"><span class="c-x">${esc(nameOf("x"))} ${tx}</span> : <span class="c-o">${to} ${esc(nameOf("o"))}</span></p>
     ${ser[0] + ser[1] ? `<p class="ser">Série ${ser[0]} : ${ser[1]}</p>` : ""}
@@ -515,6 +579,7 @@ async function createRoom(a, b) {
   const meta = { app: "jamka-na-miru", v: 1, sx: Net.device, so: "", g: { a, b } };
   await Net.save(Net.metaUrl(id), meta);
   await Net.save(Net.seatUrl(id, "x"), seatDoc());
+  await Net.save(Net.seatUrl(id, "o"), seatDoc());      // prázdný deník soupeře hned, ať načtení nevrací 404 (zbytečná chyba v konzoli)
   Net.store.set(seatKey(id), "x");
   history.replaceState(null, "", location.pathname + location.search + "#r." + id);
   await enterRoom(id, meta);
@@ -614,8 +679,9 @@ requestAnimationFrame(layout);
 
 // ---------- háčky pro testy ----------
 window.__jm = {
-  state: () => G && { ph: G.ph, hole: G.hole, p: G.p, n: G.n, me: me(), seat: room && room.seat, busy, view, balls: G.balls, str: G.str, sc: G.sc, pars: G.pars, pend: G.pend && { x: G.pend.x !== null, o: G.pend.o !== null }, traps: G.traps, win: G.win, seed: G.seed },
+  state: () => G && { ph: G.ph, hole: G.hole, p: G.p, n: G.n, me: me(), seat: room && room.seat, busy, view, result: !!ui.result, faces: { x: faceOf("x"), o: faceOf("o") }, balls: G.balls, str: G.str, sc: G.sc, pars: G.pars, pend: G.pend && { x: G.pend.x !== null, o: G.pend.o !== null }, traps: G.traps, win: G.win, seed: G.seed },
   info: () => room && gameInfo(),
+  viewInfo: () => ({ view, seat: room ? room.seat : null, room: !!room, meta: room && room.meta ? { a: room.meta.g.a, b: room.meta.g.b, so: !!room.meta.so } : null, id: room ? room.id : null }),
   trap(k, x, y, a = 0) { if (!ui.sel || ui.sel !== k) pickTrap(k, true); if (x != null) { ui.rot = a; moveGhost(x, y); } const ok = ui.ghost && ui.ghost.ok; placeTrap(); return ok; },
   autoTrap() { const m = me(), o = J.offer(G, m); pickTrap(o[0], true); const ok = ui.ghost && ui.ghost.ok; placeTrap(); return ok; },
   bot() { const c = course(); const m = me(); const balls = G.balls[m].on ? G.balls : { ...G.balls, [m]: { x: c.tee[0], y: c.tee[1], on: true, in: false } }; const b = J.botShot({ ...c, }, balls, m); return { A: b.A, P: b.P }; },

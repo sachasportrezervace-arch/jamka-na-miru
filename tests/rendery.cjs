@@ -1,12 +1,12 @@
-// node tests/rendery.cjs [a|b|ab]  – rendery obou návrhů obrazovky do design/ (potřebuje server na 8808: python -m http.server 8808)
-// Chromium desktop 1440x900 + WebKit iPhone 13 na výšku. Pro každý návrh: past, úder (míření), výsledek jamky, konec partie.
+// node tests/rendery.cjs  – rendery vybraného návrhu A („čistý stůl“) do design/a-*.png (potřebuje server na 8808: python -m http.server 8808)
+// Chromium desktop 1440x900 + WebKit iPhone 13 na výšku: past, úder (míření), výsledek jamky (panel dole + míček v jamce), konec partie.
 // Hru hraje skriptem přes window.__jm (autoTrap, bot, shoot); míření simuluje tažením myší od míčku.
 const path = require("path"), fs = require("fs");
 const pw = require(process.env.PW || path.join(process.env.APPDATA || "", "npm/node_modules/playwright"));
 const OUT = path.join(__dirname, "..", "design");
 const BASE = process.env.BASE || "http://127.0.0.1:8808/";
 const SEED = process.env.SEED || "1";
-const navrhy = (process.argv[2] || "ab").split("");
+const navrh = "a";
 fs.mkdirSync(OUT, { recursive: true });
 
 const DEVICES = [
@@ -27,14 +27,14 @@ async function idle(p, max = 60000) {            // počká, až dohraje animace
   throw new Error("busy timeout");
 }
 
-async function run(browser, dev, navrh, errs) {
+async function run(browser, dev, errs) {
   const ctx = await browser.newContext(dev.opts);
   await ctx.addInitScript(() => { try { localStorage.setItem("jm-ioshint", "1"); } catch { } });
   const p = await ctx.newPage();
   p.on("console", m => { if (m.type() === "error" || m.type() === "warning") errs.push(`[${navrh}/${dev.name}] ${m.type()}: ${m.text()}`); });
   p.on("pageerror", e => errs.push(`[${navrh}/${dev.name}] PAGEERROR: ${e.message}`));
   const shot = async (kind) => { const f = path.join(OUT, `${navrh}-${dev.name}-${kind}.png`); await p.screenshot({ path: f }); console.log("  ", path.relative(path.join(__dirname, ".."), f)); };
-  await p.goto(`${BASE}?mistni=${SEED}&navrh=${navrh}`);
+  await p.goto(`${BASE}?mistni=${SEED}`);
   await p.waitForFunction(() => window.__jm && window.__jm.state());
   await wait(p, 1500);
   // (a) stavění pasti: vybraná past + duch na dráze
@@ -61,7 +61,7 @@ async function run(browser, dev, navrh, errs) {
   while (Date.now() < tEnd) {
     const s = await p.evaluate(() => window.__jm.state());
     if (s.ph === "end") break;
-    if (!gotRes && await p.evaluate(() => !!document.querySelector("#intro.on .res"))) { await wait(p, 450); await shot("vysledek"); gotRes = true; }
+    if (!gotRes && await p.evaluate(() => !!document.querySelector("#dock .res"))) { await wait(p, 450); await shot("vysledek"); gotRes = true; }
     if (s.busy) { await p.evaluate(() => window.__jm.scene.skip()); await wait(p, 60); continue; }
     if (s.ph === "trap") await p.evaluate(() => window.__jm.autoTrap());
     else if (s.ph === "play") await p.evaluate(() => { const b = window.__jm.bot(); window.__jm.shoot(b.A, b.P); });
@@ -81,7 +81,7 @@ async function run(browser, dev, navrh, errs) {
   const errs = [];
   for (const dev of DEVICES) {
     const browser = await pw[dev.engine].launch(launchOpts(dev.engine));
-    for (const n of navrhy) { console.log(`${n} / ${dev.name}`); await run(browser, dev, n, errs); }
+    console.log(`${navrh} / ${dev.name}`); await run(browser, dev, errs);
     await browser.close();
   }
   console.log(errs.length ? "CHYBY:\n" + errs.join("\n") : "bez chyb v konzoli");

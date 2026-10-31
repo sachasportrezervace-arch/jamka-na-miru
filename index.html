@@ -40,13 +40,14 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 /* ---------- horní lišta ---------- */
 #topbar { position: absolute; left: 0; right: 0; top: 0; padding: calc(var(--safeT) + 10px) 12px 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 8px; pointer-events: none; }
 .chip { pointer-events: auto; display: grid; grid-template-columns: auto 1fr auto; grid-template-rows: auto auto; column-gap: 8px; align-items: center; background: var(--paper); border-radius: 16px; padding: 7px 12px 7px 8px; box-shadow: var(--sh); min-width: 0; max-width: 260px; transition: transform .2s, box-shadow .2s; }
-.chip .bi { grid-row: 1 / 3; width: 30px; height: 30px; }
+.chip .bi { grid-row: 1 / 3; width: 30px; height: 30px; transition: transform .2s; }
+.chip.turn .bi { transform: scale(1.1); }
 .chip .nm { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
 .chip .nm i { font-style: normal; font-weight: 600; font-size: 11px; color: var(--mut); background: #F1EEF6; border-radius: 6px; padding: 1px 5px; margin-left: 2px; vertical-align: 1px; }
 .chip .tot { grid-row: 1 / 3; grid-column: 3; display: flex; flex-direction: column; align-items: flex-end; line-height: 1; }
 .chip .tot b { font: 800 24px/1 var(--disp); }
 .chip .tot em { font-style: normal; font-weight: 700; font-size: 11px; color: var(--mut); margin-top: 2px; }
-.chip .cur { font-size: 12px; color: var(--mut); font-weight: 600; white-space: nowrap; }
+.chip .cur { font-size: 12px; color: var(--mut); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #chipO { justify-self: end; }
 .chip.turn { box-shadow: 0 0 0 3px var(--pc), var(--sh); transform: translateY(1px); }
 #chipX { --pc: var(--x); } #chipO { --pc: var(--o); }
@@ -56,44 +57,65 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 #holePill .par { font-weight: 700; font-size: 13px; opacity: .9; }
 #holePill .mod { font-weight: 700; font-size: 12px; background: var(--sun); color: var(--ink); border-radius: 8px; padding: 2px 7px; }
 
-/* ---------- nástroje ---------- */
-#tools { position: absolute; right: 12px; top: calc(var(--safeT) + 70px); display: flex; flex-direction: column; gap: 8px; }
+/* ---------- nabídka (skórkarta, zvuk, celá obrazovka) ---------- */
+#bMenu { position: absolute; right: 12px; top: calc(var(--safeT) + 70px); }
 .ib { width: 40px; height: 40px; border-radius: 13px; background: var(--paper); box-shadow: var(--sh); display: grid; place-items: center; }
 .ib svg { width: 21px; height: 21px; }
-#bSound.off { opacity: .55; }
-#bCam { position: absolute; right: 12px; display: flex; align-items: center; gap: 6px; height: 42px; padding: 0 14px 0 11px; border-radius: 14px; background: var(--paper); box-shadow: var(--sh); font-weight: 700; font-size: 14px; }
+#bMenu[aria-expanded="true"] { background: var(--ink); color: #fff; }
+#menu { position: absolute; right: 12px; top: calc(var(--safeT) + 116px); background: var(--paper); border-radius: 16px; box-shadow: var(--sh); padding: 6px; min-width: 214px; display: flex; flex-direction: column; z-index: 4; }
+#menu[hidden] { display: none; }
+#menu .mi { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 11px; font-weight: 700; font-size: 14.5px; text-align: left; }
+#menu .mi:hover, #menu .mi:active { background: #F1EEF6; }
+#menu .mi[hidden] { display: none; }
+#menu .mi svg { width: 21px; height: 21px; flex: none; }
+#bCam { position: absolute; right: 12px; display: flex; align-items: center; gap: 6px; height: 42px; padding: 0 14px 0 11px; border-radius: 14px; background: var(--paper); box-shadow: var(--sh); font-weight: 700; font-size: 14px; bottom: calc(var(--safeB) + 12px + var(--dockH, 0px)); }
 #bCam svg { width: 20px; height: 20px; }
 #bCam[hidden] { display: none; }
 
 /* ---------- spodní lišta ---------- */
 #dock { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--safeB) + 12px); width: min(560px, calc(100% - 24px)); background: var(--paper); border-radius: 20px; box-shadow: var(--sh); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; transition: opacity .2s; }
 #dock:empty, #dock.quiet { opacity: 0; pointer-events: none; }
-#dock .say { display: flex; flex-direction: column; gap: 1px; }
+#dock .say { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 #dock .say b { font: 800 19px/1.15 var(--disp); }
 #dock .say span { color: var(--mut); font-size: 13.5px; }
-#dock.mine { box-shadow: 0 0 0 3px var(--pc, var(--x)), var(--sh); }
+.aimrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.aimrow .say { flex: 1; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
 .tc { text-align: left; background: #F7F5FA; border-radius: 14px; padding: 9px 10px; display: grid; grid-template-columns: 38px 1fr; column-gap: 8px; align-items: center; border: 2px solid transparent; }
 .tc svg { width: 38px; height: 38px; grid-row: 1 / 3; }
 .tc b { font-weight: 700; font-size: 14px; }
 .tc span { font-size: 11.5px; color: var(--mut); line-height: 1.25; }
-.tc.on { background: #FFF6D6; border-color: var(--ink); }
+.tc.on { background: var(--sun); border-color: var(--ink); }
+.tc.on span { color: rgba(30,27,46,.75); }
 .row { display: flex; gap: 8px; }
 .row .btn { flex: 1; }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border-radius: 14px; background: var(--ink); color: #fff; font-weight: 700; font-size: 16px; box-shadow: 0 3px 0 rgba(0,0,0,.25); width: 100%; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border-radius: 14px; background: var(--sun); color: var(--ink); font-weight: 700; font-size: 16px; box-shadow: inset 0 0 0 2px var(--ink), 0 3px 0 var(--ink); width: 100%; }
 .btn.alt { background: #F1EEF6; color: var(--ink); box-shadow: none; }
 .btn:disabled { opacity: .45; cursor: default; }
-.btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,.25); }
+.btn:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 0 0 2px var(--ink), 0 1px 0 var(--ink); }
+.btn.alt:active:not(:disabled) { box-shadow: none; }
 
-/* síla úderu */
-#pow { position: absolute; left: 50%; top: calc(var(--safeT) + 74px); transform: translateX(-50%) scale(.9); opacity: 0; transition: opacity .12s, transform .12s; background: var(--ink); color: #fff; border-radius: 12px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; pointer-events: none; }
-#pow.on { opacity: 1; transform: translateX(-50%) scale(1); }
-#pow i { display: block; width: 120px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.2); overflow: hidden; }
+/* síla úderu (v panelu) */
+#pow { flex: none; display: flex; align-items: center; gap: 6px; opacity: .28; transition: opacity .12s; }
+#pow.on { opacity: 1; }
+#pow i { display: block; width: 76px; height: 9px; border-radius: 5px; background: #E6E2EE; overflow: hidden; }
 #pow i::after { content: ""; display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: linear-gradient(90deg, #7CE38B, var(--sun) 70%, #FF6A3D); }
-#pow b { font: 800 15px/1 var(--disp); min-width: 40px; text-align: right; }
+#pow b { font: 800 16px/1 var(--disp); min-width: 42px; text-align: right; }
 
-/* ---------- uvedení jamky / výsledek jamky ---------- */
-#intro { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%) scale(.92); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; }
+/* výsledek jamky v panelu */
+.res { display: flex; flex-direction: column; gap: 6px; }
+.res .rh { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.res .rh b { font: 800 19px/1.15 var(--disp); }
+.res .rh span { color: var(--mut); font-weight: 700; font-size: 13px; }
+.res .rl { display: grid; grid-template-columns: 30px 1fr auto auto; gap: 8px; align-items: center; padding: 4px 10px 4px 6px; border-radius: 12px; background: #F7F5FA; }
+.res .rl.w { background: #FFF0B0; }
+.res .rl .bi { width: 30px; height: 30px; }
+.res .rl span { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res .rl b { font: 800 24px/1 var(--disp); }
+.res .rl em { font-style: normal; font-weight: 700; font-size: 13px; color: var(--mut); min-width: 44px; text-align: right; }
+
+/* ---------- uvedení jamky ---------- */
+#intro { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%) scale(.92); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; }
 #intro.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 .hi { background: var(--paper); border-radius: 22px; box-shadow: var(--sh); padding: 16px 22px; text-align: center; min-width: 230px; max-width: min(340px, 86vw); }
 .hi .no { display: block; font-weight: 700; color: var(--mut); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
@@ -101,13 +123,10 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .hi .th { font-weight: 600; color: var(--mut); }
 .hi p { margin: 8px 0 0; font-size: 14px; }
 .hi p b { font-weight: 700; }
-.hi.res .hr { display: grid; grid-template-columns: 30px 1fr auto auto; gap: 8px; align-items: center; text-align: left; margin-top: 8px; }
-.hi.res .hr .bi { width: 30px; height: 30px; }
-.hi.res .hr b { font: 800 26px/1 var(--disp); }
-.hi.res .hr em { font-style: normal; font-weight: 700; font-size: 13px; color: var(--mut); min-width: 34px; text-align: right; }
 
 /* ---------- skórkarta ---------- */
 #card { display: none; }
+body.cardOpen #card { display: block; position: absolute; right: 12px; top: calc(var(--safeT) + 116px); width: min(380px, calc(100% - 24px)); background: var(--paper); border-radius: 18px; box-shadow: var(--sh); padding: 8px; z-index: 4; }
 #card table, .cardwrap table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
 #card th, #card td, .cardwrap th, .cardwrap td { padding: 4px 3px; text-align: center; }
 #card thead td, .cardwrap thead td { color: var(--mut); font-weight: 700; font-size: 11px; }
@@ -141,7 +160,14 @@ td.sum { font-weight: 800; font-family: var(--disp); font-size: 15px; }
 .how li::before { content: ""; position: absolute; left: 3px; top: .5em; width: 7px; height: 7px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 0 2px var(--ink); }
 .msg { background: #F7F5FA; border-radius: 13px; padding: 12px; font-size: 14px; user-select: text; -webkit-user-select: text; }
 .endcard { display: flex; flex-direction: column; gap: 10px; text-align: center; align-items: center; }
-.endcard .win { display: flex; } .endcard .win .bi { width: 74px; height: 74px; } .endcard .win .bi + .bi { margin-left: -16px; }
+.endpair { display: flex; align-items: flex-end; justify-content: center; gap: 18px; }
+.endpair .who { display: flex; flex-direction: column; align-items: center; gap: 2px; font-weight: 700; font-size: 13px; color: var(--mut); }
+.endpair .who .bi { width: 74px; height: 74px; }
+.endpair .who.lose .bi { width: 56px; height: 56px; opacity: .92; }
+.endpair .who.win { color: var(--ink); }
+.endpair .who.win .bi { animation: hop .9s ease-in-out infinite; }
+@keyframes hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@media (prefers-reduced-motion: reduce) { .endpair .who.win .bi { animation: none; } }
 .endcard .score { font: 800 22px/1.1 var(--disp); }
 .c-x { color: var(--x); } .c-o { color: var(--o); }
 .endcard .ser { color: var(--mut); font-weight: 700; }
@@ -158,92 +184,64 @@ td.sum { font-weight: 800; font-family: var(--disp); font-size: 15px; }
 #iosHint { position: absolute; left: 12px; right: 12px; bottom: calc(var(--safeB) + 12px); background: var(--ink); color: #fff; border-radius: 16px; padding: 12px 44px 12px 14px; font-size: 13.5px; z-index: 6; }
 #iosHint[hidden], body:not(.menu) #iosHint { display: none; }
 #iosHintX { position: absolute; right: 8px; top: 8px; width: 30px; height: 30px; border-radius: 9px; background: rgba(255,255,255,.14); color: #fff; font-size: 18px; }
-body.menu #topbar, body.menu #tools, body.menu #dock, body.menu #bCam, body.menu #side { visibility: hidden; }
+body.menu #topbar, body.menu #bMenu, body.menu #menu, body.menu #card, body.menu #dock, body.menu #bCam { visibility: hidden; }
 
-/* ===================== Návrh A: čistý stůl ===================== */
-.navrh-a #bCam { bottom: calc(var(--safeB) + 12px + var(--dockH, 0px)); }
-.navrh-a.cardOpen #card { display: block; position: absolute; right: 60px; top: calc(var(--safeT) + 70px); width: min(380px, calc(100% - 76px)); background: var(--paper); border-radius: 18px; box-shadow: var(--sh); padding: 8px; }
-
-/* ===================== Návrh B: kartička ===================== */
-.navrh-b #dock { background: var(--ink); color: #fff; }
-.navrh-b #dock .say span { color: rgba(255,255,255,.7); }
-.navrh-b .tc { background: rgba(255,255,255,.08); color: #fff; }
-.navrh-b .tc span { color: rgba(255,255,255,.65); }
-.navrh-b .tc.on { background: var(--sun); color: var(--ink); border-color: var(--sun); }
-.navrh-b .tc.on span { color: rgba(30,27,46,.7); }
-.navrh-b #dock .btn { background: var(--sun); color: var(--ink); box-shadow: 0 3px 0 rgba(0,0,0,.35); }
-.navrh-b #dock .btn.alt { background: rgba(255,255,255,.12); color: #fff; }
-.navrh-b #bCard { display: none; }
-.navrh-b #bCam { bottom: calc(var(--safeB) + 12px + var(--dockH, 0px)); }
-@media (min-width: 900px) {
-  .navrh-b #topbar { left: 372px; grid-template-columns: 1fr; }
-  .navrh-b .chip { display: none; }
-  .navrh-b #holePill { justify-self: center; }
-  .navrh-b #side { display: flex; }
-  .navrh-b #card { display: block; position: absolute; left: 16px; top: 84px; width: 340px; background: var(--paper); border-radius: 18px; box-shadow: var(--sh); padding: 8px 12px; }
-  .navrh-b #dock { left: 16px; transform: none; width: 340px; bottom: calc(var(--safeB) + 16px); }
-  .navrh-b .cards { grid-template-columns: 1fr; }
-}
-#side { display: none; position: absolute; left: 16px; top: 16px; width: 340px; flex-direction: column; gap: 10px; background: var(--paper); border-radius: 22px; box-shadow: var(--sh); padding: 14px; }
-#side .brand { display: flex; align-items: center; gap: 8px; font: 800 22px/1 var(--disp); }
-#side .brand .bi { width: 30px; height: 30px; } #side .brand .bi + .bi { margin-left: -14px; }
-@media (max-width: 899px) {
-  .navrh-b .chip { display: none; }
-  .navrh-b #topbar { padding-top: calc(var(--safeT) + 98px); grid-template-columns: 1fr; }
-  .navrh-b #holePill { grid-column: 1; justify-self: center; }
-  .navrh-b #card { display: block; position: absolute; left: 10px; right: 10px; top: calc(var(--safeT) + 10px); background: var(--paper); border-radius: 16px; box-shadow: var(--sh); padding: 4px 6px; }
-  .navrh-b #card table { font-size: 12px; }
-  .navrh-b #card thead { display: none; }
-  .navrh-b #card table { table-layout: fixed; }
-  .navrh-b #card th, .navrh-b #card td { padding: 2px 2px; }
-  .navrh-b #card tbody th { width: 92px; max-width: none; }
-  .navrh-b #card td.sum { width: 34px; }
-  .navrh-b #tools { top: calc(var(--safeT) + 142px); }
-}
-
-/* ---------- mobil ---------- */
+/* ---------- mobil (iPhone na výšku): štítky nejvýš ~48 px, jméno + součet ---------- */
 @media (max-width: 560px) {
   #topbar { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; padding-left: 10px; padding-right: 10px; }
-  .navrh-a #holePill { grid-column: 1 / 3; grid-row: 2; justify-self: center; padding: 5px 12px; }
-  .navrh-a #chipX { grid-row: 1; grid-column: 1; } .navrh-a #chipO { grid-row: 1; grid-column: 2; }
-  .chip { padding: 6px 10px 6px 6px; max-width: none; }
-  .chip .bi { width: 26px; height: 26px; }
+  #holePill { grid-column: 1 / 3; grid-row: 2; justify-self: center; padding: 5px 12px; }
+  #chipX { grid-row: 1; grid-column: 1; } #chipO { grid-row: 1; grid-column: 2; }
+  .chip { padding: 5px 10px 5px 6px; max-width: none; grid-template-rows: auto; max-height: 48px; }
+  .chip .bi { width: 26px; height: 26px; grid-row: 1; }
+  .chip .nm { grid-row: 1; font-size: 14px; }
+  .chip .tot { grid-row: 1; }
+  .chip .cur { display: none; }
   .chip .tot b { font-size: 21px; }
-  #tools { top: auto; bottom: calc(var(--safeB) + 12px + var(--dockH, 0px) + 54px); }
-  .ib { width: 38px; height: 38px; }
+  #bMenu { right: 10px; top: calc(var(--safeT) + 60px); width: 38px; height: 38px; }
+  #menu, body.cardOpen #card { right: 10px; top: calc(var(--safeT) + 104px); }
+  body.cardOpen #card { left: 10px; width: auto; }
   #dock { width: calc(100% - 20px); bottom: calc(var(--safeB) + 10px); padding: 11px 12px; }
+  #bCam { right: 10px; }
   .cards { grid-template-columns: 1fr 1fr; gap: 6px; }
   .cards .tc:last-child:nth-child(odd) { grid-column: 1 / 3; }
   .tc { padding: 7px 8px; grid-template-columns: 30px 1fr; column-gap: 6px; }
   .tc svg { width: 30px; height: 30px; }
   .tc span { font-size: 11px; }
-  #pow { top: auto; left: 12px; transform: scale(.9); transform-origin: left bottom; bottom: calc(var(--safeB) + 12px + var(--dockH, 0px) + 6px); }
-  #pow.on { transform: scale(1); }
+  #pow i { width: 58px; }
+  #pow b { min-width: 38px; font-size: 15px; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
-  #dock { width: min(420px, 46vw); left: auto; right: 12px; transform: none; }
-  .cards { grid-template-columns: 1fr; }
+  #dock { width: min(420px, 46vw); left: auto; right: 12px; transform: none; bottom: calc(var(--safeB) + 8px); max-height: calc(100% - 16px); overflow-y: auto; padding: 9px 11px; gap: 7px; }
+  .cards { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .cards .tc:last-child:nth-child(odd) { grid-column: 1 / 3; }
+  .tc { padding: 6px 7px; grid-template-columns: 28px 1fr; column-gap: 6px; }
+  .tc svg { width: 28px; height: 28px; }
+  .tc span { font-size: 10.5px; }
+  .btn { min-height: 42px; }
   #topbar { padding-top: 6px; }
+  #bMenu { right: auto; left: 12px; top: 62px; width: 38px; height: 38px; }
+  #menu, body.cardOpen #card { right: auto; left: 12px; top: 106px; }
+  body.cardOpen #card { width: min(380px, 50vw); }
+  #bCam { right: auto; left: 12px; bottom: 10px; }
 }
 </style>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 </head>
-<body>
+<body class="navrh-a">
 <canvas id="cv" aria-label="Minigolfové hřiště"></canvas>
 <div id="topbar">
   <div class="chip" id="chipX"></div>
   <div id="holePill"></div>
   <div class="chip" id="chipO"></div>
 </div>
-<div id="side"><div class="brand"><svg viewBox="0 0 40 40" class="bi"><circle cx="20" cy="20" r="18" fill="#FF6A3D"/></svg><svg viewBox="0 0 40 40" class="bi"><circle cx="20" cy="20" r="18" fill="#3E8BFF"/></svg>Jamka na míru</div></div>
-<div id="card"></div>
-<div id="tools">
-  <button class="ib" id="bCard" aria-label="Skórkarta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 4v16"/></svg></button>
-  <button class="ib" id="bSound" aria-label="Vypnout zvuk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg></button>
-  <button class="ib" id="bFs" hidden aria-label="Celá obrazovka"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg></button>
+<button class="ib" id="bMenu" aria-label="Nabídka" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
+<div id="menu" hidden role="menu">
+  <button class="mi" id="bCard" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 4v16"/></svg><span>Skórkarta</span></button>
+  <button class="mi" id="bSound" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg><span>Zvuk zapnutý</span></button>
+  <button class="mi" id="bFs" hidden role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg><span>Celá obrazovka</span></button>
 </div>
+<div id="card"></div>
 <button id="bCam" hidden></button>
-<div id="pow"><i></i><b>0 %</b></div>
 <div id="dock"></div>
 <div id="intro"></div>
 <div id="view" hidden></div>
@@ -251,7 +249,6 @@ body.menu #topbar, body.menu #tools, body.menu #dock, body.menu #bCam, body.menu
 <div id="net" hidden></div>
 <div id="iosHint" hidden>Na celou obrazovku: klepni na <b>Sdílet</b> a pak <b>Přidat na plochu</b>. Hra se pak otevře bez lišty prohlížeče.<button id="iosHintX" aria-label="Zavřít">×</button></div>
 <script src="./src/sim.js"></script>
-<script>document.body.classList.add("navrh-" + (new URLSearchParams(location.search).get("navrh") || "a"));</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

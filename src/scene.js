@@ -27,7 +27,8 @@ class Mesher {
     return new THREE.Mesh(g, mat);
   }
 }
-const flatMat = () => new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+// DoubleSide: zkosené rohy a mantinely mají trojúhelníky navinuté různým směrem; bez toho se z části ploch vykreslí jen tenká hrana
+const flatMat = () => new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
 function lowMat(color, extra) { return new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra }); }
 
 // ---------- obličeje míčků (kreslené na plátno, jako sprite přes míček) ----------
@@ -66,6 +67,12 @@ function faceTex(kind) {
     case "worry": eye(L, Y, er, [0, 0.2]); eye(Rr, Y, er, [0, 0.2]);
       g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); g.moveTo(26, 30); g.lineTo(50, 24); g.moveTo(102, 30); g.lineTo(78, 24); g.stroke();
       g.beginPath(); g.moveTo(50, 98); g.lineTo(58, 94); g.lineTo(66, 98); g.lineTo(74, 94); g.lineTo(80, 98); g.stroke(); break;
+    case "peek": eye(L, Y, er, [0.7, -0.75]); eye(Rr, Y, er, [0.7, -0.75]);   // kouká nahoru k jamce
+      g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); g.moveTo(26, 30); g.lineTo(50, 28); g.moveTo(102, 30); g.lineTo(78, 28); g.stroke();
+      g.beginPath(); g.arc(64, 90, 12, Math.PI * 0.2, Math.PI * 0.8); g.stroke(); break;
+    case "sad": eye(L, Y + 4, er, [0, 0.9]); eye(Rr, Y + 4, er, [0, 0.9]);
+      g.strokeStyle = ink; g.lineWidth = 6; g.beginPath(); g.moveTo(26, 40); g.lineTo(50, 28); g.moveTo(102, 40); g.lineTo(78, 28); g.stroke();
+      g.beginPath(); g.arc(64, 112, 14, Math.PI * 1.15, Math.PI * 1.85); g.stroke(); break;
     case "sleep": g.strokeStyle = ink; g.lineWidth = 7; g.beginPath(); g.moveTo(L - 14, Y + 2); g.lineTo(L + 14, Y + 2); g.moveTo(Rr - 14, Y + 2); g.lineTo(Rr + 14, Y + 2); g.stroke();
       g.lineWidth = 5; g.beginPath(); g.arc(64, 94, 6, 0, Math.PI * 2); g.stroke(); break;
     default: eye(L, Y, er, [0, 0.1]); eye(Rr, Y, er, [0, 0.1]);
@@ -110,7 +117,7 @@ export function createScene(canvas) {
     const ring = new THREE.Mesh(new THREE.RingGeometry(J.R * 1.55, J.R * 1.85, 24), new THREE.MeshBasicMaterial({ color: PLAYER[k].ball, transparent: true, opacity: 0.0, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2;
     g.add(body, face); scene.add(g, sh, ring);
-    balls[k] = { g, body, face, sh, ring, kind: "idle", x: 0, y: 0, vis: false, squash: 0, face0: "idle", until: 0 };
+    balls[k] = { g, body, face, sh, ring, kind: "idle", x: 0, y: 0, vis: false, squash: 0, face0: "idle", until: 0, sink: 0, party: false };
   }
   // ---------- míření: tečkovaná čára a prstenec síly ----------
   const dots = [];
@@ -210,28 +217,49 @@ export function createScene(canvas) {
     const fm = new Mesher(); fm.tri([0, 1.3, 0], [0, 0.95, 0], [0.5, 1.13, 0], th.flag); fm.tri([0, 1.3, 0], [0.5, 1.13, 0], [0, 0.95, 0], th.flag);
     const cloth = fm.mesh(flatMat());
     flag.add(pole, cloth); flag.position.set(c.cup[0], ch, c.cup[1]); flag.userData.cloth = cloth; world.add(flag);
-    // okolí: pár stromů a kamenů mimo dráhu (jen ozdoba, ze seedu)
-    const free = (x, y) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const X = Math.floor(x) + a, Y = Math.floor(y) + b; if (X >= 0 && Y >= 0 && X < W && Y < Hh && (c.type[Y * W + X] || c.island[Y * W + X])) return false; } return true; };
-    let placed = 0;
-    for (let tries = 0; tries < 220 && placed < 14; tries++) {
-      const x = -3 + r() * (W + 6), y = -3 + r() * (Hh + 6);
-      if (!free(x, y)) continue;
-      placed++;
-      if (r() < 0.62) world.add(tree(x, y, GROUND, r)); else { const s = 0.25 + r() * 0.35, k = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), lowMat(th.rock)); k.position.set(x, GROUND + s * 0.5, y); k.rotation.set(r(), r(), r()); world.add(k); }
-    }
     fitHole();
+    decorate(r, GROUND);
   }
-  function tree(x, y, base, r) {
-    const g = new THREE.Group(), s = 0.7 + r() * 0.6;
-    if (c.th === "zima") {
+  // Ozdoba: jen 2-3 klidné prvky podle tématu (zahrada: kulatý strom, pláž: slunečník, zima: smrček).
+  // Stojí vedle trati nebo za ní (nikdy v zákrytu mezi kamerou a dráhou) a v záběru celé jamky.
+  function decorate(r, GROUND) {
+    const W = c.W, Hh = c.H;
+    const near = (x, y, rad) => { for (let a = -rad; a <= rad; a++) for (let b = -rad; b <= rad; b++) { const X = Math.floor(x) + a, Y = Math.floor(y) + b; if (X >= 0 && Y >= 0 && X < W && Y < Hh && (c.type[Y * W + X] || c.island[Y * W + X])) return true; } return false; };
+    const blocks = (x, y) => { for (let Y = 0; Y < Math.floor(y); Y++) for (let a = -1; a <= 1; a++) { const X = Math.floor(x) + a; if (X >= 0 && X < W && c.type[Y * W + X]) return true; } return false; };   // dráha leží severněji ve stejných sloupcích
+    const m = margins(), want = 2 + (r() < 0.5 ? 1 : 0), chosen = [];
+    for (const rad of [2, 1]) {
+      const cand = [];
+      for (let y = -4; y <= Hh + 4; y += 0.5) for (let x = -4; x <= W + 4; x += 0.5) {
+        if (near(x, y, rad) || blocks(x, y)) continue;
+        const q = new THREE.Vector3(x, GROUND + 0.8, y).project(camera);
+        if (q.z > 1 || q.x < -0.84 + m.l || q.x > 0.84 - m.r || q.y < -0.84 + m.b || q.y > 0.84 - m.t) continue;
+        cand.push([x, y]);
+      }
+      while (cand.length && chosen.length < want) {
+        const i = Math.floor(r() * cand.length), p = cand.splice(i, 1)[0];
+        if (chosen.every(q => Math.hypot(q[0] - p[0], q[1] - p[1]) > 2.6)) chosen.push(p);
+      }
+      if (chosen.length >= want) break;
+    }
+    for (const [x, y] of chosen) world.add(prop(x, y, GROUND, r));
+  }
+  function prop(x, y, base, r) {
+    const g = new THREE.Group(), s = 0.85 + r() * 0.45;
+    if (c.th === "zima") {                         // smrček se sněhem
       const t = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * s, 0.08 * s, 0.4 * s, 5), lowMat(th.trunk)); t.position.y = 0.2 * s; g.add(t);
       for (let i = 0; i < 3; i++) { const k = new THREE.Mesh(new THREE.ConeGeometry((0.55 - i * 0.14) * s, 0.55 * s, 6), lowMat(i === 2 ? "#FFFFFF" : th.tree)); k.position.y = (0.55 + i * 0.32) * s; g.add(k); }
-    } else if (c.th === "plaz") {
-      const t = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * s, 0.08 * s, 1.5 * s, 5), lowMat(th.trunk)); t.position.y = 0.75 * s; t.rotation.z = 0.12; g.add(t);
-      for (let i = 0; i < 5; i++) { const l = new THREE.Mesh(new THREE.ConeGeometry(0.12 * s, 0.9 * s, 3), lowMat(i & 1 ? th.tree : th.tree2)); l.position.set(0.09 * s, 1.5 * s, 0); l.rotation.set(0, i * 1.256, 1.9); l.translateY(0.38 * s); g.add(l); }
-    } else {
-      const t = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * s, 0.09 * s, 0.5 * s, 5), lowMat(th.trunk)); t.position.y = 0.25 * s; g.add(t);
-      const k = new THREE.Mesh(new THREE.IcosahedronGeometry(0.48 * s, 0), lowMat(r() < 0.5 ? th.tree : th.tree2)); k.position.y = 0.85 * s; g.add(k);
+    } else if (c.th === "plaz") {                  // slunečník
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035 * s, 0.04 * s, 1.15 * s, 6), lowMat("#F4F1EA")); pole.position.y = 0.575 * s; g.add(pole);
+      const um = new Mesher(), n = 8, R0 = 0.62 * s, top = 1.32 * s, rim = 1.05 * s;
+      for (let i = 0; i < n; i++) {
+        const a0 = i / n * Math.PI * 2, a1 = (i + 1) / n * Math.PI * 2;
+        um.tri([0, top, 0], [Math.cos(a0) * R0, rim, Math.sin(a0) * R0], [Math.cos(a1) * R0, rim, Math.sin(a1) * R0], i & 1 ? "#FFFFFF" : th.accent);
+      }
+      g.add(um.mesh(flatMat()));
+      const towel = new THREE.Mesh(new THREE.BoxGeometry(0.7 * s, 0.02, 0.38 * s), lowMat("#FFD23F")); towel.position.set(0.55 * s, 0.012, 0.15 * s); towel.rotation.y = 0.5; g.add(towel);
+    } else {                                       // kulatý strom
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * s, 0.1 * s, 0.6 * s, 6), lowMat(th.trunk)); t.position.y = 0.3 * s; g.add(t);
+      const k = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55 * s, 1), lowMat(r() < 0.5 ? th.tree : th.tree2)); k.position.y = 1.0 * s; k.scale.set(1, 0.92, 1); g.add(k);
     }
     g.position.set(x, base, y); g.rotation.y = r() * 6;
     return g;
@@ -321,14 +349,22 @@ export function createScene(canvas) {
   const trapsData = () => traps.map(m => m.userData.t);
   function setBall(k, b, show) {
     const o = balls[k];
+    o.sink = 0; o.party = false; o.hop = 0;
     o.vis = !!(show && b && b.on && !b.in);
     o.g.visible = o.sh.visible = o.vis; o.ring.visible = o.vis;
     if (!o.vis) return;
     o.x = b.x; o.y = b.y; place(k);
   }
+  // míček v jamce: zapuštěný, veselý, poskakuje (výsledek jamky)
+  function sinkBall(k, x, y, face) {
+    const o = balls[k];
+    o.vis = true; o.x = x; o.y = y; o.sink = -J.R * 0.62; o.party = true;
+    o.g.visible = true; o.sh.visible = false; o.ring.visible = false;
+    setFace(k, face || "happy"); place(k);
+  }
   function place(k) {
     const o = balls[k], z = ballZ(k, o.x, o.y);
-    o.g.position.set(o.x, z + o.hop, o.y);
+    o.g.position.set(o.x, z + o.hop + o.sink, o.y);
     o.sh.position.set(o.x, z - J.R + 0.015, o.y);
     o.ring.position.set(o.x, z - J.R + 0.02, o.y);
     // obličej natočený ke kameře, kousek před míčkem
@@ -404,8 +440,8 @@ export function createScene(canvas) {
       for (const p of pts) { const q = p.clone().project(camera); if (q.x < -1 + m.l || q.x > 1 - m.r || q.y < -1 + m.b || q.y > 1 - m.t || q.z > 1) { ok = false; break; } }
       if (ok) hi = d; else lo = d;
     }
-    // posun cíle, aby střed trati seděl mezi okraji HUDu
-    holeFit = { tx, ty, tz: tz, dist: hi, pitch, shiftY: (m.b - m.t) / 2 };
+    camera.position.copy(camPos(tx, ty, tz, hi, 0, pitch)); camera.lookAt(tx, ty, tz); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+    holeFit = { tx, ty, tz: tz, dist: hi, pitch };
   }
   // místo pro HUD v jednotkách NDC (0..2) – nastavuje main podle rozvržení
   let hudPad = { t: 0.16, b: 0.22, l: 0.04, r: 0.04 };
@@ -425,22 +461,75 @@ export function createScene(canvas) {
     if (Math.abs(fx) + Math.abs(fz) < 1e-3) return 0;
     return Math.atan2(-fx, -fz);
   }
+  // Cesta z míčku k jamce podle vzdálenostního pole: body do délky 8 políček (celá cesta, když je jamka blíž).
+  function pathAhead(o) {
+    const pts = []; let x = Math.floor(o.x), y = Math.floor(o.y), len = 0, px = o.x, py = o.y, reached = false;
+    const inside = (X, Y) => X >= 0 && Y >= 0 && X < c.W && Y < c.H;
+    for (let s = 0; s < 16 && len < 8; s++) {
+      let best = null;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const X = x + a, Y = y + b; if (!inside(X, Y)) continue; const d = c.df[Y * c.W + X]; if (d < 1e8 && (!best || d < best.d)) best = { d, X, Y }; }
+      if (!best || (best.X === x && best.Y === y)) { reached = c.df[y * c.W + x] === 0 || Math.hypot(c.cup[0] - px, c.cup[1] - py) < 1.2; break; }
+      x = best.X; y = best.Y;
+      const qx = x + 0.5, qy = y + 0.5; len += Math.hypot(qx - px, qy - py); px = qx; py = qy; pts.push([qx, qy]);
+      if (best.d === 0) { reached = true; break; }
+    }
+    if (reached) pts.push([c.cup[0], c.cup[1]]);
+    return { pts, reached };
+  }
+  // Záběr za míčkem: míček v dolní třetině volné plochy, před ním cesta k jamce (a vlajka, když je jamka do ~8 políček).
+  function fitBall(k) {
+    if (!c) return;
+    const o = balls[k], yaw = cam.want ? cam.want.yaw : 0, pitch = aspect < 1 ? 1.12 : 1.0;
+    const { pts, reached } = pathAhead(o), m = margins();
+    const gh = (x, y) => J.surf(c, x, y).h, ty = gh(o.x, o.y);
+    const P = pts.map(p => new THREE.Vector3(p[0], gh(p[0], p[1]) + 0.3, p[1]));
+    if (reached) P.push(new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]) + 1.45, c.cup[1]));
+    P.push(new THREE.Vector3(o.x, ty + 2 * J.R + 0.1, o.y));
+    const ball = new THREE.Vector3(o.x, ty + J.R, o.y), tmp = new THREE.Vector3();
+    const f = [-Math.sin(yaw), -Math.cos(yaw)];
+    const ylo = -1 + m.b + 0.05, yhi = 1 - m.t - 0.05, xl = -1 + m.l + 0.05, xr = 1 - m.r - 0.05, yb = ylo + (yhi - ylo) * 0.3;
+    applyOffset();
+    const put = (d, s) => { const tx = o.x + f[0] * s, tz = o.y + f[1] * s; camera.position.copy(camPos(tx, ty, tz, d, yaw, pitch)); camera.lookAt(tx, ty, tz); camera.updateMatrixWorld(); camera.updateProjectionMatrix(); };
+    let lo = 4.8, hi = 42, best = null;
+    for (let it = 0; it < 18; it++) {
+      const d = (lo + hi) / 2;
+      let sl = 0, sh = 18;
+      for (let j = 0; j < 16; j++) { const s = (sl + sh) / 2; put(d, s); if (tmp.copy(ball).project(camera).y > yb) sl = s; else sh = s; }
+      const s = (sl + sh) / 2; put(d, s);
+      let ok = true;
+      for (const p of P) { const q = tmp.copy(p).project(camera); if (q.z > 1 || q.x < xl || q.x > xr || q.y > yhi || q.y < ylo) { ok = false; break; } }
+      if (ok) { hi = d; best = { d, s }; } else lo = d;
+    }
+    if (!best) best = { d: hi, s: 4 };
+    cam.fr = { off: [f[0] * best.s, f[1] * best.s], dist: best.d, pitch };
+  }
   function frameBall(k, snap) {
     cam.follow = k; const o = balls[k];
     cam.want = { yaw: followYaw(k) };
     if (snap) { cam.yaw = cam.want.yaw; cam.tx = o.x; cam.tz = o.y; }
+    fitBall(k);
+    if (snap) cam.cur = null;
+  }
+  function showCup(items) {
+    const holed = items.filter(i => i.holed);
+    holed.forEach((it, n) => sinkBall(it.k, c.cup[0] + (holed.length === 1 ? 0 : (n ? 1 : -1) * J.R * 1.05), c.cup[1], it.face || "happy"));
+    for (const it of items.filter(i => !i.holed)) { setBall(it.k, { x: it.x, y: it.y, on: true, in: false }, true); setFace(it.k, it.face || "sad"); }
+    if (holed.length) burst(c.cup[0], c.cup[1], "jamka");
+    setMode("cup");
   }
   function updateCam(dt) {
     let tx, ty, tz, dist, yaw, pitch;
+    const toYaw0 = () => { if (cam.yaw !== 0) { let d = -cam.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; cam.yaw += d * (1 - Math.pow(0.01, dt)); } return cam.yaw; };
     if (cam.mode === "ball" && cam.follow) {
-      const o = balls[cam.follow];
+      const o = balls[cam.follow], fr = cam.fr || { off: [0, 0], dist: 8, pitch: 1.0 };
       const k = 1 - Math.pow(0.002, dt);
       cam.tx += (o.x - cam.tx) * k; cam.tz += (o.y - cam.tz) * k;
       if (cam.want) { let d = cam.want.yaw - cam.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; cam.yaw += d * (1 - Math.pow(0.01, dt)); }
-      tx = cam.tx + cam.panX; tz = cam.tz + cam.panZ; ty = J.surf(c, cam.tx, cam.tz).h; dist = (aspect < 1 ? 9 : 7.4) * cam.zoom; yaw = cam.yaw; pitch = 0.85;
+      tx = cam.tx + fr.off[0] + cam.panX; tz = cam.tz + fr.off[1] + cam.panZ; ty = J.surf(c, cam.tx, cam.tz).h; dist = fr.dist * cam.zoom; yaw = cam.yaw; pitch = fr.pitch;
+    } else if (cam.mode === "cup") {
+      tx = c.cup[0] + cam.panX; tz = c.cup[1] + cam.panZ; ty = J.surf(c, c.cup[0], c.cup[1]).h; dist = (aspect < 1 ? 5.6 : 4.6) * cam.zoom; yaw = toYaw0(); pitch = 1.0;
     } else {
-      tx = holeFit.tx + cam.panX; ty = holeFit.ty; tz = holeFit.tz + cam.panZ; dist = holeFit.dist * cam.zoom; yaw = 0; pitch = holeFit.pitch;
-      if (cam.yaw !== 0) { let d = -cam.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; cam.yaw += d * (1 - Math.pow(0.01, dt)); yaw = cam.yaw; }
+      tx = holeFit.tx + cam.panX; ty = holeFit.ty; tz = holeFit.tz + cam.panZ; dist = holeFit.dist * cam.zoom; pitch = holeFit.pitch; yaw = toYaw0();
     }
     const p = camPos(tx, ty, tz, dist, yaw, pitch);
     if (!cam.cur) cam.cur = { p: p.clone(), t: new THREE.Vector3(tx, ty, tz) };
@@ -486,7 +575,7 @@ export function createScene(canvas) {
   let W0 = 1, H0 = 1, last = performance.now(), running = true;
   function resize() {
     const r = canvas.getBoundingClientRect(); W0 = Math.max(1, r.width); H0 = Math.max(1, r.height);
-    renderer.setSize(W0, H0, false); aspect = W0 / H0; camera.aspect = aspect; camera.clearViewOffset(); camera.updateProjectionMatrix(); fitHole();
+    renderer.setSize(W0, H0, false); aspect = W0 / H0; camera.aspect = aspect; camera.clearViewOffset(); camera.updateProjectionMatrix(); fitHole(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow);
   }
   function frame(now) {
     if (!running) return;
@@ -505,6 +594,7 @@ export function createScene(canvas) {
     for (const k of ["x", "o"]) {
       const o = balls[k];
       if (o.until && now > o.until) { o.until = 0; o.face.material.map = faceTex(o.face0); o.face.material.needsUpdate = true; }
+      if (o.party) o.hop = Math.abs(Math.sin(now / 240 + (k === "o" ? 1.4 : 0))) * 0.12;
       if (o.vis) place(k);
     }
     // pasti: kachna se pohupuje, krtek kouká, pád při odhalení
@@ -530,11 +620,11 @@ export function createScene(canvas) {
   resize();
 
   return {
-    setHole, setTraps, dropTraps, setBlades, fadeOwn, setGhost, setBall, setFace, turnRing, setAim, burst,
+    setHole, setTraps, dropTraps, sinkBall, showCup, setBlades, fadeOwn, setGhost, setBall, setFace, turnRing, setAim, burst,
     setMode, frameBall, snapCam, groundAt, toScreen, playFrames, skip, resize,
     get mode() { return cam.mode; }, cam, balls, get busy() { return !!anim; },
-    setHudPad(p) { hudPad = p; fitHole(); },
-    zoomBy(f) { cam.zoom = Math.max(0.45, Math.min(cam.mode === "ball" ? 2.6 : 1.5, cam.zoom * f)); },
+    setHudPad(p) { hudPad = p; fitHole(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow); },
+    zoomBy(f) { cam.zoom = Math.max(0.45, Math.min(cam.mode === "ball" ? 1.7 : 1.5, cam.zoom * f)); },
     pan(dx, dz) { cam.panX += dx; cam.panZ += dz; },
     stop() { running = false; },
     renderer, camera,
