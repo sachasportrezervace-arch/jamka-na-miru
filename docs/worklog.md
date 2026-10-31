@@ -1,5 +1,17 @@
 # Worklog – Jamka na míru
 
+## 2026-10-31 ~22:50 – kamera bez useknuté jamky, sólo „Zkusit sám“, napojení na Hernu (session účtu P)
+Hotovo:
+1. Kamera (`src/scene.js` `fitBall`, `cupAllPts`, `cupPts`, `fitCup`): celá sada bodů jamky (okraj, špička tyče, látka) je buď celá ve volné ploše mezi HUD a panelem, nebo celá mimo obrazovku; mimo obrazovku je míček v dolní třetině a kamera hledí k jamce. Zoom ven u výsledku jamky na desktopu (okolí 1,5/1,4, pasti do 9 políček). `#bCam` („Oddálit“) je v dolním panelu (`index.html`), nepřekrývá hřiště a nelepí se na panel; skrytý mimo úder.
+2. První jamka lehčí (`src/sim.js` `plan`: 2 nebo 3 nohy, par 2–3 v ≥90/100 seedů). Nový `J.botHuman` (lidský bot: chyba úhlu a síly, nejlepší z pěti úderů vážené náhodně).
+3. Sólo „Zkusit sám“ (`src/main.js`: `startSolo`, `botMaybe`, `botTrap`, `botShoot`, `leaveSolo`; hash `#solo`; „Trénink“ v liště jamky; konec „Znovu“ + „Vyzvat soupeře“; bez sítě a bez série).
+4. Herna (`hernaParams`, `startHerna`, `doHerny`, `hernaStav`, `hernaResult`; `<meta name="herna-protokol">`; tlačítko „Jiná hra“; skryto sdílení a „Zkusit sám“). Bez `#herna` beze změny. Opraven pád `showEnd` po odvetě (rematch volal showEnd i když sync už spustil novou partii).
+5. `tests/pamet.cjs`: textury obličejů se cachují líně (max 10), kritérium už nepočítá první růst jako únik (rozhodující je druhá půlka partie).
+Rozhodnuto (předpoklady): vítěz v Herně se posílá podle sedadla Herny (`meta.hx`); odveta v Herně = standardní odveta hry; obtížnost bota je odhad (průměr 1,0–1,5× par).
+Testy (server `python -m http.server 8808`, kořen hry): `node tests/sim.test.cjs` exit 0 (29/29) · `node tests/kamera.cjs` (desktop, iPhone na výšku, iPhone na šířku) exit 0 každý (132 snímků) · `node tests/pamet.cjs 3` exit 0 · `node tests/duel.cjs` (živý mantledb) exit 0 (36/36) · `node tests/perf.cjs` exit 0 · `node tests/solo.cjs` exit 0 (34/34, desktop i iPhone) · `node tests/herna.cjs` exit 0 (25/25) · `SEED=7 node tests/rendery.cjs` exit 0 · `SEED=21 UVOD=1 node tests/rendery.cjs` exit 0.
+Rendery: `design/a-s7-*`, `design/a-s21-*`, `design/a-uvod-*`.
+NEOVĚŘENO: skutečný iPhone, zvuk, celá obrazovka, pinch; živá Herna a Pages (nic nenasazeno ani nepushnuto); iPhone na šířku jen emulací Playwright; na desktopu u seedu 21 je daleký kruh pasti ve výsledku jamky částečně useknutý nahoře (přijato).
+
 ## 2026-10-31 ~23:30 – 2. kolo design-eye (NE-PROFI): blokující vady opraveny (session účtu P)
 Opraveno (soubor):
 1. Kamera při úderu (`src/scene.js` `fitBall`, `pathAhead`, `cupSpots`): míček, jamka a špička praporku se vejdou do volné plochy mezi horní HUD a dolní panel. `fitBall` zkouší celou cestu + jamku + praporek při kameře do 25 (na výšku 24), pak zkracuje cestu (20, 17, 14, 11, 8 políček), zkouší natočení (po cestě, k jamce, mezi) a polohu míčku ve volné ploše (30, 12, 50, 70 %). Daleká jamka je buď celá ve volné ploše, nebo celá mimo obrazovku, nikdy napůl pod HUD. Tlačítka mimo pruhy (nabídka, Oddálit) předává `main.js layout()` přes `setHudRects`.

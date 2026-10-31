@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Jamka na míru</title>
 <meta name="description" content="Minigolf pro dva na jednom odkazu. Před každou jamkou postavíš soupeři past.">
+<meta name="herna-protokol" content="1">
 <meta name="theme-color" content="#CFEBD9">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -55,6 +56,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 #holePill b { font: 800 18px/1 var(--disp); }
 #holePill b span { opacity: .6; font: inherit; }          /* „/6“ stejným písmem a řezem jako „Jamka 1“ */
 #holePill .par { font-weight: 700; font-size: 13px; opacity: .9; }
+#holePill .trn { font-weight: 700; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; opacity: .55; }
 #holePill .mod { font-weight: 700; font-size: 12px; background: var(--sun); color: var(--ink); border-radius: 8px; padding: 2px 7px; }
 
 /* ---------- nabídka (skórkarta, zvuk, celá obrazovka) ---------- */
@@ -68,8 +70,11 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 #menu .mi:hover, #menu .mi:active { background: #F1EEF6; }
 #menu .mi[hidden] { display: none; }
 #menu .mi svg { width: 21px; height: 21px; flex: none; }
-#bCam { position: absolute; right: 12px; display: flex; align-items: center; gap: 6px; height: 42px; padding: 0 14px 0 11px; border-radius: 14px; background: var(--paper); box-shadow: var(--sh); font-weight: 700; font-size: 14px; bottom: calc(var(--safeB) + 12px + var(--dockH, 0px)); }
-#bCam svg { width: 20px; height: 20px; }
+/* Oddálit / K míčku: kulaté tlačítko přímo v panelu (vpravo), mimo dráhu a nelepí se na panel; panel mu dělá místo (body.camOn) */
+#bCam { position: absolute; right: calc((100% - min(560px, 100% - 24px)) / 2 + 14px); bottom: calc(var(--safeB) + 12px + (var(--dockOH, 60px) - 46px) / 2); width: 54px; height: 46px; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 13px; background: #F1EEF6; box-shadow: none; font-weight: 700; font-size: 11px; line-height: 1; z-index: 2; }
+#bCam svg { width: 19px; height: 19px; }
+body.camOn #dock { padding-right: 82px; }
+body.dockQuiet #bCam { display: none; }
 #bCam[hidden] { display: none; }
 
 /* ---------- spodní lišta ---------- */
@@ -176,6 +181,9 @@ td.sum { font-weight: 800; font-family: var(--disp); font-size: 15px; }
 .titles li { background: #F7F5FA; border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; border-left: 5px solid currentColor; }
 .titles li b { font-weight: 800; } .titles li span { color: var(--mut); font-size: 13px; }
 .wait { color: var(--mut); font-weight: 600; }
+.trn-note { margin: 0; color: var(--mut); font-size: 13px; font-weight: 600; }
+/* v Herně (iframe) nejsou odkazy ven ani celá obrazovka */
+body.herna #bFs, body.herna #iosHint { display: none !important; }
 
 #toast { position: absolute; left: 50%; top: calc(var(--safeT) + 64px); transform: translate(-50%, -8px); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 14px; font-weight: 600; font-size: 14px; max-width: min(420px, 90vw); text-align: center; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 5; }
 #toast.on { opacity: 1; transform: translate(-50%, 0); }
@@ -199,6 +207,7 @@ body.menu #topbar, body.menu #bMenu, body.menu #menu, body.menu #card, body.menu
   #holePill { border-radius: 18px; padding: 9px 18px; gap: 13px; }
   #holePill b { font-size: 23px; }
   #holePill .par { font-size: 17px; }
+  #holePill .trn { font-size: 13px; }
   #holePill .mod { font-size: 15.5px; border-radius: 10px; padding: 3px 9px; }
   #bMenu { right: 16px; top: calc(var(--safeT) + 92px); }
   #menu, body.cardOpen #card { right: 16px; top: calc(var(--safeT) + 140px); }
@@ -219,7 +228,7 @@ body.menu #topbar, body.menu #bMenu, body.menu #menu, body.menu #card, body.menu
   #menu, body.cardOpen #card { right: 10px; top: calc(var(--safeT) + 104px); }
   body.cardOpen #card { left: 10px; width: auto; }
   #dock { width: calc(100% - 20px); bottom: calc(var(--safeB) + 10px); padding: 11px 12px; }
-  #bCam { right: 10px; }
+  #bCam { right: 22px; bottom: calc(var(--safeB) + 10px + (var(--dockOH, 60px) - 46px) / 2); }
   .cards { grid-template-columns: 1fr 1fr; gap: 6px; }
   .cards .tc:last-child:nth-child(odd) { grid-column: 1 / 3; }
   .tc { padding: 7px 8px; grid-template-columns: 30px 1fr; column-gap: 6px; }
@@ -240,7 +249,8 @@ body.menu #topbar, body.menu #bMenu, body.menu #menu, body.menu #card, body.menu
   #bMenu { right: auto; left: 12px; top: 62px; width: 38px; height: 38px; }
   #menu, body.cardOpen #card { right: auto; left: 12px; top: 106px; }
   body.cardOpen #card { width: min(380px, 50vw); }
-  #bCam { right: auto; left: 12px; bottom: 10px; }
+  #bCam { right: 23px; bottom: calc(var(--safeB) + 8px + (var(--dockOH, 56px) - 46px) / 2); }
+}
 }
 </style>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>

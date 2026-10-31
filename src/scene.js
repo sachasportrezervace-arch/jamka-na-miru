@@ -515,63 +515,80 @@ export function createScene(canvas) {
     if (reached) pts.push([c.cup[0], c.cup[1], len + Math.hypot(c.cup[0] - px, c.cup[1] - py)]);
     return { pts, reached };
   }
+  // Body jamky, které se nesmí useknout: obrys jamky (s rezervou), špička tyče a konec látky praporku.
+  function cupAllPts() {
+    const [cx, cz] = c.cup, ch = J.surf(c, cx, cz).h, r = J.CUP_R * (c.mod === "velka" ? 1.45 : c.mod === "mala" ? 0.8 : 1) + 0.14, pts = [];
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; pts.push(new THREE.Vector3(cx + Math.cos(a) * r, ch, cz + Math.sin(a) * r)); }
+    pts.push(new THREE.Vector3(cx, ch + 1.4, cz), new THREE.Vector3(cx + 0.58, ch + 1.12, cz), new THREE.Vector3(cx + 0.58, ch + 1.34, cz));
+    return pts;
+  }
   // Záběr za míčkem: míček v dolní třetině volné plochy (mezi HUD nahoře a panelem dole), před ním cesta k jamce.
-  // Nejdřív se zkusí celá cesta + jamka + špička praporku; když se při nejvzdálenější přijatelné kameře nevejde,
-  // zkracuje se cesta (14, 11, 8 políček), jamka se vynechá a nikdy nic nepřesáhne volnou plochu.
+  // Pravidlo: jamka s praporkem je buď CELÁ ve volné ploše (celá cesta + jamka), nebo CELÁ mimo obrazovku (pak míček sedí
+  // v dolní třetině a kamera kouká k jamce). Nikdy napůl pod HUD ani uříznutá okrajem. Zkouší se postupně: celá cesta
+  // + jamka při přijatelném odstupu kamery, pak zkracovaná cesta (jamka mimo obrazovku), pak vyšší poloha míčku.
   function fitBall(k) {
     if (!c) return;
-    const o = balls[k], pitch = aspect < 1 ? 1.12 : 1.0, dMax = aspect < 1 ? 24 : 25;
+    const o = balls[k], pitch = aspect < 1 ? 1.12 : 1.0, dMax = Math.min(aspect < 1 ? 24 : 25, H0 * 0.037);   // míček má mít aspoň ~12 px (na šířku iPhonu je obraz nízký, tam se víc neoddaluje)
     const yaw1 = cam.want ? (cam.want.base != null ? cam.want.base : cam.want.yaw) : 0;
     // kandidáti na natočení: po směru cesty (jako dosud), pak přímo k jamce, pak něco mezi (vejde se víc, hlavně na výšku)
     const yawCup = Math.atan2(-(c.cup[0] - o.x), -(c.cup[1] - o.y)), dy = Math.atan2(Math.sin(yawCup - yaw1), Math.cos(yawCup - yaw1));
     const yaws = [yaw1, yaw1 + dy / 2, yaw1 + dy];
     const crit = v => { v.crit = true; return v; };
-    const YBS = [0.3, 0.12, 0.5, 0.7];                   // kam do volné plochy postavit míček (od spodu); další hodnoty se zkusí, když se jamka nevejde
     const full = pathAhead(o, 80), m = margins();
     const gh = (x, y) => J.surf(c, x, y).h, ty = gh(o.x, o.y);
     const ball = new THREE.Vector3(o.x, ty + J.R, o.y), tmp = new THREE.Vector3();
     const ylo = -1 + m.b + 0.05, yhi = 1 - m.t - 0.05, xl = -1 + m.l + 0.05, xr = 1 - m.r - 0.05;
     applyOffset();
-    const cupB = new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]), c.cup[1]), cupT = new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]) + 1.45, c.cup[1]);
-    const inBand = q => q.z < 1 && q.x >= xl && q.x <= xr && q.y <= yhi && q.y >= ylo, inFree = q => inBand(q) && !rectHit(q), onScr = q => q.z < 1 && Math.abs(q.x) < 1 && Math.abs(q.y) < 1;
-    // jamka mimo seznam bodů: buď je (s praporkem) celá ve volné ploše, nebo je celá mimo obrazovku; nikdy napůl pod HUD / uříznutá
-    const cupOk = () => { const a = tmp.copy(cupB).project(camera), b = new THREE.Vector3().copy(cupT).project(camera); return onScr(a) ? inFree(a) && inFree(b) : !onScr(b) || inFree(b); };
+    const cupAll = cupAllPts();
+    const inBand = q => q.z < 1 && q.x >= xl && q.x <= xr && q.y <= yhi && q.y >= ylo, inFree = q => inBand(q) && !rectHit(q), onScr = q => q.z < 1 && Math.abs(q.x) < 1.02 && Math.abs(q.y) < 1.02;
+    const cupOk = () => { let any = false, all = true; for (const p of cupAll) { const q = tmp.copy(p).project(camera); if (onScr(q)) any = true; if (!inFree(q)) all = false; } return all || !any; };
     // Pro dané natočení a polohu míčku najde nejmenší vzdálenost kamery, při které jsou všechny body ve volné ploše;
     // když jamka není mezi body, hledá se (od té vzdálenosti nahoru) takové d, kdy je jamka celá ve volné ploše nebo celá mimo obrazovku.
-    const solve = (P, yaw, cupIn, ybf) => {
+    const solve = (P, yaw, cupIn, ybf, dLim) => {
       const yb = ylo + (yhi - ylo) * ybf, f = [-Math.sin(yaw), -Math.cos(yaw)];
       const put = (d, s) => { const tx = o.x + f[0] * s, tz = o.y + f[1] * s; camera.position.copy(camPos(tx, ty, tz, d, yaw, pitch)); camera.lookAt(tx, ty, tz); camera.updateMatrixWorld(); camera.updateProjectionMatrix(); };
       const at = d => {
         let sl = 0, sh = 24;
-        for (let j = 0; j < 16; j++) { const s = (sl + sh) / 2; put(d, s); if (tmp.copy(ball).project(camera).y > yb) sl = s; else sh = s; }
+        for (let j = 0; j < 14; j++) { const s = (sl + sh) / 2; put(d, s); if (tmp.copy(ball).project(camera).y > yb) sl = s; else sh = s; }
         const s = (sl + sh) / 2; put(d, s);
         let okP = true;
         for (const p of P) { const q = tmp.copy(p).project(camera); if (p.crit ? !inFree(q) : !inBand(q)) { okP = false; break; } }   // křehké body (míček, jamka) i mimo tlačítka; cesta jen v pruhu
         return { okP, s };
       };
-      if (!at(dMax).okP) return null;
-      let lo = 4.8, hi = dMax;
-      for (let it = 0; it < 18; it++) { const d = (lo + hi) / 2; if (at(d).okP) hi = d; else lo = d; }
-      for (let i = 0; i <= 12; i++) {
-        const d = hi + (dMax - hi) * i / 12, r = at(d);
+      if (!at(dLim).okP) return null;
+      let lo = 4.8, hi = dLim;
+      for (let it = 0; it < 16; it++) { const d = (lo + hi) / 2; if (at(d).okP) hi = d; else lo = d; }
+      const N = cupIn ? 0 : 24;
+      for (let i = 0; i <= N; i++) {
+        const d = hi + (dLim - hi) * i / Math.max(1, N), r = at(d);
         if (r.okP && (cupIn || cupOk())) return { d, s: r.s, yaw, off: [f[0] * r.s, f[1] * r.s] };
       }
       return null;
     };
-    let best = null;
-    for (const cut of [Infinity, 20, 17, 14, 11, 8]) {
+    const pathP = cut => {
       const P = [crit(new THREE.Vector3(o.x, ty + 2 * J.R + 0.1, o.y))];
       let complete = true;
       for (const p of full.pts) { if (p[2] > cut) { complete = false; break; } P.push(new THREE.Vector3(p[0], gh(p[0], p[1]) + 0.3, p[1])); }
-      if (complete && full.reached) P.push(crit(new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]) + 1.45, c.cup[1])), crit(new THREE.Vector3(c.cup[0], gh(c.cup[0], c.cup[1]), c.cup[1])));
       const cupIn = complete && full.reached;
-      for (const yw of yaws) { for (const ybf of YBS) { best = solve(P, yw, cupIn, ybf); if (best) { best.how = `cut ${cut} yaw ${yaws.indexOf(yw)} yb ${ybf}`; break; } } if (best) break; }
+      if (cupIn) for (const p of cupAll) P.push(crit(p));
+      return { P, cupIn };
+    };
+    const stages = [{ cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax * 0.84, name: "cela" },      // celá cesta + jamka, jen když při tom nejsou objekty drobné
+      { cuts: [20, 17, 14, 11, 8, 6], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi" },                     // jamka celá mimo obrazovku
+      { cuts: [Infinity], ybs: [0.5, 0.7], dLim: dMax, name: "vys" }];
+    let best = null;
+    for (const st of stages) {
+      for (const cut of st.cuts) {
+        const { P, cupIn } = pathP(cut);
+        if (cut === Infinity && !cupIn) continue;
+        for (const yw of yaws) { for (const ybf of st.ybs) { best = solve(P, yw, cupIn, ybf, st.dLim); if (best) { best.how = `${st.name} cut ${cut} yaw ${yaws.indexOf(yw)} yb ${ybf}`; break; } } if (best) break; }
+        if (best) break;
+      }
       if (best) break;
     }
-    if (!best) {                                         // nouzově: prvních ~6 políček, nikdy větší záběr než dMax
-      const P = [crit(new THREE.Vector3(o.x, ty + 2 * J.R + 0.1, o.y))];
-      for (const p of full.pts) { if (p[2] > 6) break; P.push(new THREE.Vector3(p[0], gh(p[0], p[1]) + 0.3, p[1])); }
-      for (const yw of yaws) { for (const ybf of YBS) { best = solve(P, yw, false, ybf); if (best) { best.how = `nouze6 yaw ${yaws.indexOf(yw)} yb ${ybf}`; break; } } if (best) break; }
+    if (!best) {                                         // nouzově: míček + pár políček cesty, jamka musí být celá mimo nebo celá uvnitř
+      const { P } = pathP(2);
+      for (const yw of yaws) { for (const ybf of [0.3, 0.12, 0.5]) { best = solve(P, yw, false, ybf, dMax); if (best) { best.how = `nouze yaw ${yaws.indexOf(yw)} yb ${ybf}`; break; } } if (best) break; }
       best = best || { d: dMax, s: 4, yaw: yaw1, off: [-Math.sin(yaw1) * 4, -Math.cos(yaw1) * 4] };
     }
     if (cam.want) cam.want.yaw = best.yaw;
@@ -602,10 +619,18 @@ export function createScene(canvas) {
     return out;
   }
   let cupSp = null, cupFitD = 6;
-  function cupPts(sp) {
+  function cupPts(sp, withTraps) {
     const [cx, cz] = c.cup, ch = J.surf(c, cx, cz).h, pts = [];
     pts.push(new THREE.Vector3(cx, ch, cz), new THREE.Vector3(cx, ch + 1.4, cz));
-    for (const [dx, dz] of [[2.8, 1.9], [-2.8, 1.9], [2.8, -1.5], [-2.8, -1.5]]) pts.push(new THREE.Vector3(cx + dx, ch, cz + dz));
+    // kus okolí jamky: na šířku (desktop) víc, ať je vidět trať kolem jamky a ne jen prázdný plac; pasti poblíž celé, i s prstenci
+    const kx = aspect > 1.2 ? 1.5 : 1, kz = aspect > 1.2 ? 1.4 : 1;
+    for (const [dx, dz] of [[2.8, 1.9], [-2.8, 1.9], [2.8, -1.5], [-2.8, -1.5]]) pts.push(new THREE.Vector3(cx + dx * kx, ch, cz + dz * kz));
+    for (const t of withTraps ? traps.map(m => m.userData.t) : []) {
+      const tx = t.x / 20, tz = t.y / 20;
+      if (Math.hypot(tx - cx, tz - cz) > 9) continue;
+      const r = (J.TRAPS[t.k].foot || 0.9) + 0.35, th = J.surf(c, tx, tz).h;
+      for (const [ux, uz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) pts.push(new THREE.Vector3(tx + ux * r, th, tz + uz * r));
+    }
     const list = sp || cupSpots(2);
     for (const q of list) { const h = J.surf(c, q[0], q[1]).h; pts.push(new THREE.Vector3(q[0], h + 2 * J.R + 0.12, q[1]), new THREE.Vector3(q[0] - J.R, h, q[1] + J.R), new THREE.Vector3(q[0] + J.R, h, q[1] + J.R)); }
     return pts;
@@ -631,7 +656,8 @@ export function createScene(canvas) {
     }
     return hi;
   }
-  function fitCup() { if (c) cupFitD = fitCupDist(cupPts(cupSp)); }
+  // pasti poblíž jamky se do záběru přidají celé (i s prstenci), ale jen když kvůli nim kamera neodjede víc než o polovinu
+  function fitCup() { if (!c) return; const a = fitCupDist(cupPts(cupSp, false)), b = fitCupDist(cupPts(cupSp, true)); cupFitD = b <= a * 1.5 ? b : a; }
   function showCup(items) {
     const holed = items.filter(i => i.holed), sp = cupSpots(holed.length);
     cupSp = sp;

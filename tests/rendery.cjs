@@ -1,5 +1,6 @@
 // node tests/rendery.cjs  – rendery do design/a-s<seed>-<zařízení>-<záběr>.png (potřebuje server na 8808: python -m http.server 8808)
 // SEED=7 (výchozí) | SEED=3 ... ; KRATKE=1 vynechá konec partie (past, úder, výsledek jamky 1 a hotovo)
+// UVOD=1 přidá render úvodní obrazovky do design/a-uvod-<zařízení>.png (s tlačítkem „Zkusit sám“), UVOD=jen udělá jen ten
 // Chromium desktop 1440x900 + WebKit iPhone 13 na výšku: past, úder (míření), výsledek jamky (panel dole + míček v jamce), konec partie.
 // Hru hraje skriptem přes window.__jm (autoTrap, bot, shoot); míření simuluje tažením myší od míčku.
 const path = require("path"), fs = require("fs");
@@ -36,6 +37,11 @@ async function run(browser, dev, errs) {
   p.on("console", m => { if (m.type() === "error" || m.type() === "warning") errs.push(`[${navrh}/${dev.name}] ${m.type()}: ${m.text()}`); });
   p.on("pageerror", e => errs.push(`[${navrh}/${dev.name}] PAGEERROR: ${e.message}`));
   const shot = async (kind) => { const f = path.join(OUT, `${navrh}-s${SEED}-${dev.name}-${kind}.png`); await p.screenshot({ path: f }); console.log("  ", path.relative(path.join(__dirname, ".."), f)); };
+  if (process.env.UVOD) {                                    // úvodní obrazovka s tlačítkem „Zkusit sám“
+    await p.goto(BASE); await p.waitForSelector("#bSolo"); await wait(p, 500);
+    const f = path.join(OUT, `a-uvod-${dev.name}.png`); await p.screenshot({ path: f }); console.log("  ", path.relative(path.join(__dirname, ".."), f));
+    if (process.env.UVOD === "jen") { await ctx.close(); return; }
+  }
   await p.goto(`${BASE}?mistni=${SEED}`);
   await p.waitForFunction(() => window.__jm && window.__jm.state());
   await wait(p, 1500);

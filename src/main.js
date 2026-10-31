@@ -15,6 +15,7 @@ const other = J.other;
 const sc = createScene($("cv"));
 let room = null;                 // { id, meta, seat, docs: {x, o}, w, local }
 let G = null, shown = 0, queue = [], busy = false, gameKey = "", holeOn = -1, fresh = true;
+let herna = null;                // { m, r, seat, names, zaklada } v režimu Herny (protokol react-apps/HERNA-PROTOKOL.md), jinak null
 const ui = { sel: null, ghost: null, rot: 0, aim: null, camAuto: true, mood: { x: null, o: null }, result: null };
 
 // ---------- toast ----------
@@ -93,6 +94,7 @@ const platform = (() => {
 function layout() {
   sc.resize();
   const h = innerHeight, top = $("topbar").getBoundingClientRect().bottom, bot = h - $("dock").getBoundingClientRect().top;
+  document.body.style.setProperty("--dockOH", $("dock").offsetHeight + "px");
   document.body.style.setProperty("--dockH", ($("dock").offsetHeight && getComputedStyle($("dock")).opacity !== "0" ? $("dock").offsetHeight + 8 : 0) + "px");
   const box = id => { const e = $(id); if (!e || e.hidden) return null; const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return null; const r = e.getBoundingClientRect(); return r.width ? [r.left, r.top, r.right, r.bottom] : null; };
   sc.setHudRects([box("bMenu"), box("bCam")].filter(Boolean));
@@ -102,9 +104,10 @@ addEventListener("resize", () => setTimeout(layout, 30));
 
 // ---------- jména a pomocné texty ----------
 const nameOf = p => room && room.meta ? (p === "x" ? room.meta.g.a : (room.meta.g.b || "Soupeř")) : p;
-const me = () => room ? (room.local ? localMe() : room.seat) : null;
+const me = () => room ? (room.solo ? "x" : room.local ? localMe() : room.seat) : null;      // sólo: hráč je vždy x, bot je o
 function localMe() { if (!G) return "x"; if (G.ph === "trap") return G.pend.x === null ? "x" : "o"; return G.p || "x"; }
 const isMe = p => !room.local && p === room.seat;
+const you = p => room.solo ? p === "x" : isMe(p);                // pro texty „stavíš“ / „tvůj tah“ (v sólu hraje „ty“ i bez štítku)
 const who = p => room.local ? nameOf(p) : isMe(p) ? "Ty" : nameOf(p);
 const course = () => G && G.ph !== "end" ? J.hole(G.seed, G.hole) : null;
 const rel = n => n === 0 ? "par" : n > 0 ? "+" + n : "−" + -n;
@@ -153,7 +156,7 @@ function statusOf(p) {
   if (!joined) return "čeká na přijetí";
   if (ui.result) return `jamka · ${ui.result.v[p]} ${rany(ui.result.v[p])}`;
   if (G.ph === "end") return G.win === "=" ? "remíza" : G.win === p ? "vítěz" : "druhý";
-  if (G.ph === "trap") return G.pend[p] === null ? (isMe(p) ? "stavíš past" : "staví past") : "past stojí";
+  if (G.ph === "trap") return G.pend[p] === null ? (you(p) ? "stavíš past" : "staví past") : "past stojí";
   if (G.done[p]) return `v jamce · ${G.str[p]} ${rany(G.str[p])}`;
   if (G.p === p) return `na tahu · ${G.str[p] + 1}. rána`;
   return G.str[p] ? `čeká · ${G.str[p]} ${rany(G.str[p])}` : "čeká na odpališti";
@@ -162,7 +165,7 @@ function statusOf(p) {
 function onTurn(p) {
   if (ui.result) return false;
   if (G.ph === "play") return G.p === p;
-  if (G.ph === "trap") return G.pend[p] === null && (!room.local || p === localMe());
+  if (G.ph === "trap") return G.pend[p] === null && (!room.local || p === me());
   return false;
 }
 function paintHud() {
@@ -177,7 +180,7 @@ function paintHud() {
   const c = ui.result ? J.hole(G.seed, ui.result.h) : course();     // při výsledku jamky ukazuje lišta jamku, která se právě dohrála
   if (c) {
     const m = J.MODS[c.mod], hn = ui.result ? ui.result.h : G.hole;
-    $("holePill").innerHTML = `<b>Jamka ${hn + 1}<span>/6</span></b><span class="par">Par ${c.par}</span>${c.mod !== "klid" ? `<span class="mod">${esc(m.name)}</span>` : ""}`;
+    $("holePill").innerHTML = `<b>Jamka ${hn + 1}<span>/6</span></b><span class="par">Par ${c.par}</span>${c.mod !== "klid" ? `<span class="mod">${esc(m.name)}</span>` : ""}${room.solo ? '<span class="trn">Trénink</span>' : ""}`;
   } else $("holePill").innerHTML = `<b>Konec partie</b>`;
   paintCard();
 }
@@ -193,10 +196,10 @@ function paintCard() {
     <tbody><tr class="r-par"><th>Par</th>${pars}<td class="sum">${G.pars.reduce((a, b) => a + b, 0) || ""}</td></tr>${rows}</tbody></table>`;
 }
 // spodní lišta: co teď dělat (a výsledek jamky)
-function paintDock() { paintDock0(); requestAnimationFrame(layout); }
+function paintDock() { paintDock0(); camVis(); document.body.classList.toggle("dockQuiet", $("dock").classList.contains("quiet")); requestAnimationFrame(layout); }
 function resultHtml(r) {
   const win = r.v.x < r.v.o ? "x" : r.v.o < r.v.x ? "o" : "=";
-  const head = win === "=" ? "Remíza na jamce" : room.local || !room.seat ? `Jamku bere ${esc(nameOf(win))}` : win === room.seat ? "Jamku bereš ty" : `Jamku bere ${esc(nameOf(win))}`;
+  const head = win === "=" ? "Remíza na jamce" : (room.local && !room.solo) || !room.seat ? `Jamku bere ${esc(nameOf(win))}` : win === room.seat ? "Jamku bereš ty" : `Jamku bere ${esc(nameOf(win))}`;
   const rows = ["x", "o"].map(p => `<div class="rl r-${p}${win === p ? " w" : ""}">${ballSvg(p, r.face[p])}<span>${esc(nameOf(p))}</span><b>${r.v[p]}</b><em>${r.v[p] === 1 ? "eso!" : rel(r.v[p] - r.par)}</em></div>`).join("");
   return `<div class="res"><div class="rh"><b>${head}</b><span>jamka ${r.h + 1} · par ${r.par}</span></div>${rows}</div>`;
 }
@@ -211,7 +214,7 @@ function paintDock0() {
     if (m && G.pend[m] === null) {
       const opts = J.offer(G, m), trailing = J.trailing(G, m);
       d.classList.add("traps");
-      d.innerHTML = `<div class="say"><b>${room.local ? `${esc(nameOf(m))} staví past soupeři` : "Postav soupeři past"}</b><span>${trailing ? "Ztrácíš, tak vybíráš ze tří pastí." : "Past chytí jen soupeře, tebe nechá být."}</span></div>
+      d.innerHTML = `<div class="say"><b>${room.local && !room.solo ? `${esc(nameOf(m))} staví past soupeři` : "Postav soupeři past"}</b><span>${trailing ? "Ztrácíš, tak vybíráš ze tří pastí." : "Past chytí jen soupeře, tebe nechá být."}</span></div>
         <div class="cards">${opts.map(k => `<button class="tc${ui.sel === k ? " on" : ""}" data-k="${k}">${TRAP_ICON[k]}<b>${J.TRAPS[k].name}</b><span>${J.TRAPS[k].desc}</span></button>`).join("")}</div>
         <div class="row">${ui.sel && J.TRAPS[ui.sel].rot ? '<button class="btn alt" id="bRot">Otočit</button>' : ""}<button class="btn" id="bPlace" ${ui.sel && ui.ghost && ui.ghost.ok ? "" : "disabled"}>${ui.sel ? (ui.ghost && ui.ghost.ok ? "Postavit sem" : "Klepni do dráhy") : "Vyber past"}</button></div>`;
       d.querySelectorAll(".tc").forEach(b => b.addEventListener("click", () => pickTrap(b.dataset.k)));
@@ -227,7 +230,7 @@ function paintDock0() {
   if (G.ph === "play") {
     const p = G.p, n = G.str[p] + 1;
     if (m === p) {
-      d.innerHTML = `<div class="aimrow"><div class="say"><b>${room.local ? esc(nameOf(p)) : "Tvůj tah"} · ${n}. rána</b><span>Táhni zpátky od míčku a pusť.</span></div><div id="pow"><i></i><b>0 %</b></div></div>`;
+      d.innerHTML = `<div class="aimrow"><div class="say"><b>${room.local && !room.solo ? esc(nameOf(p)) : "Tvůj tah"} · ${n}. rána</b><span>Táhni zpátky od míčku a pusť.</span></div><div id="pow"><i></i><b>0 %</b></div></div>`;
     } else d.innerHTML = `<div class="say"><b>Hraje ${esc(nameOf(p))} · ${n}. rána</b><span>${!room.seat ? "Přihlížíš." : G.done[m] ? "Ty už jsi v jamce." : "Potom jsi na řadě ty."}</span></div>`;
     return;
   }
@@ -266,7 +269,8 @@ async function pump() {
 // zobrazení stavu G: jamka, pasti, míčky, kamera, HUD
 function enterState(snap) {
   if (!G) return;
-  if (G.ph === "end") { paintHud(); paintDock(); showEnd(); return; }
+  if (G.ph === "end") { hernaStav("konec"); paintHud(); paintDock(); showEnd(); return; }
+  hernaStav("hraje");
   hideView();
   const c = course();
   if (holeOn !== G.hole) {
@@ -291,6 +295,7 @@ function enterState(snap) {
   } else { sc.setMode("hole"); sc.setGhost(null); }
   paintCam(); paintHud(); paintDock();
   if (G.ph === "trap" && m && G.pend[m] === null && !ui.sel) { const o = J.offer(G, m); if (o.length) pickTrap(o[0], true); }
+  botMaybe();
 }
 function holeIntro(c) {
   const m = J.MODS[c.mod], el = $("intro");
@@ -395,8 +400,8 @@ function placeTrap() {
   act({ t: "t", h: G.hole, k: t.k, x: t.x, y: t.y, a: t.a });
   ui.sel = null; ui.ghost = null; sc.setGhost(null); sound.trap();
 }
-function act(a) {
-  const m = me();
+function act(a, who) {
+  const m = who || me();
   if (room.local) { room.docs[m].acts = [...room.docs[m].acts, a]; }
   else { const d = room.w.doc(); room.w.set({ acts: [...(d.acts || []), a] }, true); room.docs[m] = room.w.doc(); }
   sync();
@@ -470,7 +475,103 @@ function paintCam() {
   $("bCam").innerHTML = hole
     ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.3-4.3M11 8v6M8 11h6"/></svg><span>K míčku</span>'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.3-4.3M8 11h6"/></svg><span>Oddálit</span>';
-  $("bCam").hidden = !G || G.ph !== "play";
+  camVis();
+}
+// Oddálit je vidět při hře (ne při výsledku jamky); na mobilu sedí v panelu, ten pak dostane místo vpravo (body.camOn)
+function camVis() {
+  const on = !!G && G.ph === "play" && !ui.result;
+  $("bCam").hidden = !on; document.body.classList.toggle("camOn", on);
+}
+
+// ---------- sólo režim „Zkusit sám“ (#solo): bot hraje za „o“, vše jen lokálně (žádná síť, místnost ani série) ----------
+let botT = 0;
+function botMaybe() {
+  clearTimeout(botT);
+  if (!room || !room.solo || !G || busy || ui.result) return;
+  const rid = room;
+  if (G.ph === "trap" && G.pend.o === null) botT = setTimeout(() => { if (room === rid && G && G.ph === "trap" && G.pend.o === null && !busy) botTrap(); }, 900);
+  else if (G.ph === "play" && G.p === "o" && !G.done.o) botT = setTimeout(() => { if (room === rid && G && G.ph === "play" && G.p === "o" && !busy && !ui.result) botShoot(); }, 950);
+}
+// Past bota: náhodný druh z nabídky a jedno z prvních šesti platných míst kolem poloviny cesty (deterministicky z místnosti, partie a jamky)
+function botTrap() {
+  const c = course(), r = J.rng(J.hashStr(room.id + ":" + gameInfo().gi + ":bt:" + G.hole)), opts = J.offer(G, "o"), k = opts[Math.floor(r() * opts.length)];
+  const dTee = c.df[Math.floor(c.tee[1]) * c.W + Math.floor(c.tee[0])], want = dTee * (0.3 + 0.4 * r()), cand = [];
+  for (let y = 0; y < c.H; y++) for (let x = 0; x < c.W; x++) { const d = c.df[y * c.W + x]; if (d < 1e8) cand.push({ x: x + 0.5, y: y + 0.5, s: Math.abs(d - want) }); }
+  cand.sort((a, b) => a.s - b.s || a.y - b.y || a.x - b.x);
+  const a = J.TRAPS[k].rot ? Math.floor(r() * J.ROT) : 0, ok = [];
+  for (const q of cand) { const t = { by: "o", k, x: Math.round(q.x * 20), y: Math.round(q.y * 20), a }; if (J.trapValid(c, t)) { ok.push(t); if (ok.length >= 6) break; } }
+  const t = ok.length ? ok[Math.floor(r() * ok.length)] : { k, x: 0, y: 0, a: 0 };
+  act({ t: "t", h: G.hole, k, x: t.x, y: t.y, a: t.a }, "o");
+}
+// Úder bota: J.botHuman vybírá z nejlepších ran a přidává chybu úhlu i síly (jde ho porazit)
+function botShoot() {
+  const c = course(), balls = G.balls.o.on ? G.balls : { ...G.balls, o: { x: c.tee[0], y: c.tee[1], on: true, in: false } };
+  const b = J.botHuman(c, balls, "o", G.traps, G.n, room.id + ":" + gameInfo().gi + ":" + G.hole + ":" + G.n);
+  act({ t: "s", n: G.n + 1, A: b.A, P: b.P }, "o");
+}
+function startSolo() {
+  stopPoll(); clearTimeout(botT);
+  const name = clampName(Net.store.get("jm-name") || "") || "Ty";
+  room = { id: "solo-" + Net.randId(8), local: true, solo: true, meta: { g: { a: name, b: "Bot" }, so: "o" }, seat: "x", docs: { x: seatDoc(), o: seatDoc() } };
+  G = null; gameKey = ""; fresh = true; queue = []; shown = 0; ui.result = null; ui.sel = null; ui.ghost = null; ui.mood = { x: null, o: null };
+  hideView(); sync(); layout();
+}
+// z konce sólo partie do normální výzvy (jméno zůstane předvyplněné z úvodu)
+function leaveSolo() {
+  clearTimeout(botT);
+  history.replaceState(null, "", location.pathname + location.search);
+  room = null; G = null; gameKey = ""; ui.result = null; sc.setGhost(null);
+  viewSetup();
+}
+
+// ---------- napojení na Hernu (protokol verze 1): #herna=1&m=…&r=…&seat=0|1&names=A,B&zaklada=0|1 ----------
+function hernaParams() {
+  if (LOCAL) return null;
+  const raw = {};
+  for (const kv of (location.hash || "").slice(1).split("&")) { const i = kv.indexOf("="); if (i > 0) raw[kv.slice(0, i)] = kv.slice(i + 1); }
+  if (raw.herna !== "1" || !/^[0-9a-z]{12,16}$/.test(raw.r || "") || (raw.seat !== "0" && raw.seat !== "1") || (raw.zaklada !== "0" && raw.zaklada !== "1")) return null;
+  const parts = (raw.names || "").split(",");
+  if (parts.length !== 2) return null;
+  let names; try { names = parts.map(x => clampName(decodeURIComponent(x))); } catch { return null; }
+  if (!names[0] || !names[1]) return null;
+  return { m: /^[0-9a-z]{1,16}$/.test(raw.m || "") ? raw.m : "", r: raw.r, seat: +raw.seat, names, zaklada: raw.zaklada === "1" };
+}
+const doHerny = z => { if (herna && window.parent !== window) window.parent.postMessage({ herna: 1, ...z }, "*"); };
+let hernaFaze = "", hernaTok = 0;
+const hernaStav = f => { if (herna && f !== hernaFaze) { hernaFaze = f; doHerny({ typ: "stav", faze: f }); } };
+const hernaSent = new Set();
+function hernaResult() {                  // jednou na konci každé partie (i odvety); vitez = sedadlo v Herně, ne vnitřní x/o
+  if (!herna || !room || !G || G.ph !== "end") return;
+  const key = room.id + ":" + gameInfo().gi; if (hernaSent.has(key)) return; hernaSent.add(key);
+  const hx = room.meta.hx === 1 ? 1 : 0;      // sedadlo v Herně hráče x (zakladatele)
+  doHerny({ typ: "vysledek", partie: key, vitez: G.win === "x" ? hx : G.win === "o" ? 1 - hx : null });
+}
+async function startHerna(h) {
+  stopPoll(); clearTimeout(botT);
+  herna = h; hernaFaze = ""; const tok = ++hernaTok;
+  document.body.classList.add("herna");
+  doHerny({ typ: "pripraveno" });
+  room = null; G = null;
+  showView("loading", `<h2>Čeká se, až hra naskočí</h2>`); hernaStav("ceka");
+  let meta = null;
+  while (tok === hernaTok) {
+    try {
+      meta = await Net.load(Net.metaUrl(h.r));
+      if (!meta && h.zaklada) {          // zakládá ten, kdo hru v Herně vybral: dokument rovnou se jmény; meta je poslední, ať ho druhý nevidí napůl
+        const nm = { app: "jamka-na-miru", v: 1, sx: Net.device, so: "herna", hx: h.seat, herna: 1, g: { a: h.names[h.seat], b: h.names[1 - h.seat] } };
+        await Net.save(Net.seatUrl(h.r, "x"), seatDoc()); await Net.save(Net.seatUrl(h.r, "o"), seatDoc());
+        await Net.save(Net.metaUrl(h.r), nm); meta = nm;
+      }
+    } catch { meta = null; }
+    if (meta && meta.app === "jamka-na-miru" && meta.g) break;
+    meta = null; await sleep(1200);
+  }
+  if (!meta || tok !== hernaTok) return;
+  const seat = h.zaklada ? "x" : "o";
+  room = { id: h.r, meta, seat, docs: { x: null, o: null }, w: null };
+  fresh = true; gameKey = "";
+  try { const [dx, dy] = await Promise.all([Net.load(Net.seatUrl(h.r, "x")), Net.load(Net.seatUrl(h.r, "o"))]); room.docs.x = dx; room.docs.o = dy; } catch { }
+  attachSeat(); hideView(); hernaStav("hraje"); startPoll(); sync(); layout();
 }
 
 // ---------- výsledek partie a odveta ----------
@@ -483,9 +584,9 @@ function showEnd() {
   const tx = totals("x").s, to = totals("o").s, m = me();
   const [wx0, wo0] = series(), info = gameInfo();
   const mine = room.docs[room.seat] || {}, logged = (mine.hist || []).some(r => r.gi === info.gi);
-  const ser = logged ? [wx0, wo0] : [wx0 + (G.win === "x" ? 1 : 0), wo0 + (G.win === "o" ? 1 : 0)];
-  const tl = J.titles(G, ser);
-  const head = G.win === "=" ? "Remíza!" : room.local ? `Vyhrává ${esc(nameOf(G.win))}` : G.win === room.seat ? "Vyhráváš!" : room.seat ? `Vyhrává ${esc(nameOf(G.win))}` : `Vyhrává ${esc(nameOf(G.win))}`;
+  const ser = room.solo ? [0, 0] : logged ? [wx0, wo0] : [wx0 + (G.win === "x" ? 1 : 0), wo0 + (G.win === "o" ? 1 : 0)];
+  const tl = J.titles(G, room.solo ? null : ser);
+  const head = G.win === "=" ? "Remíza!" : room.solo ? (G.win === "x" ? "Vyhráváš!" : `Vyhrává ${esc(nameOf("o"))}`) : room.local ? `Vyhrává ${esc(nameOf(G.win))}` : G.win === room.seat ? "Vyhráváš!" : room.seat ? `Vyhrává ${esc(nameOf(G.win))}` : `Vyhrává ${esc(nameOf(G.win))}`;
   const oppDoc = room.seat ? room.docs[other(room.seat)] || {} : {};
   const myNext = room.seat && (mine.gi || 0) > info.gi, oppNext = room.seat && (oppDoc.gi || 0) > info.gi;
   showView("end", `<div class="endcard">
@@ -495,17 +596,21 @@ function showEnd() {
     ${ser[0] + ser[1] ? `<p class="ser">Série ${ser[0]} : ${ser[1]}</p>` : ""}
     <div class="cardwrap">${$("card").innerHTML}</div>
     ${tl.length ? `<ul class="titles">${tl.map(t => `<li class="c-${t.p}"><b>${esc(t.t)}</b><span>${esc(nameOf(t.p))} · ${esc(t.d)}</span></li>`).join("")}</ul>` : ""}
-    ${room.local ? '<button class="btn" id="bAgain">Nová partie</button>' : room.seat ? (myNext ? `<p class="wait">Čekáš, až ${esc(nameOf(other(room.seat)))} kývne na odvetu.</p>` : `<button class="btn" id="bAgain">${oppNext ? `Přijmout odvetu` : "Odveta"}</button>`) : '<p class="wait">Přihlížíš.</p>'}
+    ${room.solo ? '<button class="btn" id="bAgain">Znovu</button><button class="btn alt" id="bChallenge">Vyzvat soupeře</button><p class="trn-note">Trénink se nepočítá do série.</p>' : room.local ? '<button class="btn" id="bAgain">Nová partie</button>' : room.seat ? (myNext ? `<p class="wait">Čekáš, až ${esc(nameOf(other(room.seat)))} kývne na odvetu.</p>` : `<button class="btn" id="bAgain">${oppNext ? `Přijmout odvetu` : "Odveta"}</button>`) : '<p class="wait">Přihlížíš.</p>'}
     ${oppNext && !myNext ? `<p class="wait">${esc(nameOf(other(room.seat)))} chce odvetu. Nové jamky, nové pasti.</p>` : ""}
   </div>`);
+  if (herna) $("bAgain")?.insertAdjacentHTML("afterend", '<button class="btn alt" id="bOther">Jiná hra</button>');
   $("bAgain")?.addEventListener("click", rematch);
+  $("bChallenge")?.addEventListener("click", leaveSolo);
+  $("bOther")?.addEventListener("click", () => doHerny({ typ: "jina-hra" }));
+  hernaResult();
 }
 function rematch() {
   const info = gameInfo();
   if (room.local) { for (const p of ["x", "o"]) room.docs[p] = { gi: info.gi + 1, acts: [], hist: [...(room.docs[p].hist || []), { gi: info.gi, x: totals("x").s, o: totals("o").s }] }; sync(); return; }
   const d = room.w.doc(), hist = (d.hist || []).some(r => r.gi === info.gi) ? d.hist : [...(d.hist || []), { gi: info.gi, x: totals("x").s, o: totals("o").s }];
   room.w.set({ gi: info.gi + 1, acts: [], hist: hist.slice(-40) }, true); room.docs[room.seat] = room.w.doc();
-  sync(); showEnd();
+  sync(); if (G && G.ph === "end") showEnd();      // soupeř už odvetu přijal: sync spustil novou partii, karta konce by padla na prázdném G.win
 }
 
 // ---------- obrazovky mimo hru ----------
@@ -520,7 +625,9 @@ function viewSetup() {
     ${HOW}
     <label for="fMe">Tvoje jméno</label><input id="fMe" maxlength="16" autocomplete="nickname" value="${esc(Net.store.get("jm-name") || "")}" placeholder="jak ti říkat">
     <label for="fOpp">Koho vyzýváš <i>(nepovinné)</i></label><input id="fOpp" maxlength="16" placeholder="jméno soupeře">
-    <button class="btn" id="bCreate">Připravit výzvu</button>`);
+    <button class="btn" id="bCreate">Připravit výzvu</button>
+    <button class="btn alt" id="bSolo">Zkusit sám</button>`);
+  $("bSolo").addEventListener("click", () => { const a = clampName($("fMe").value); if (a) Net.store.set("jm-name", a); if (location.hash === "#solo") startSolo(); else location.hash = "#solo"; });
   $("bCreate").addEventListener("click", async () => {
     const a = clampName($("fMe").value), b = clampName($("fOpp").value);
     if (!a) { $("fMe").focus(); toast("Napiš svoje jméno, ať soupeř ví, kdo ho vyzývá."); return; }
@@ -588,6 +695,9 @@ async function createRoom(a, b) {
   viewShare();
 }
 async function openFromHash() {
+  const hp = hernaParams();
+  if (hp) { startHerna(hp); return; }
+  if ((location.hash || "") === "#solo") { startSolo(); return; }
   const m = /^#r\.([0-9a-z]{6,16})$/.exec(location.hash || "");
   if (!m) { viewSetup(); return; }
   showView("loading", `<h2>Otevírám partii…</h2>`);
@@ -683,6 +793,7 @@ requestAnimationFrame(layout);
 window.__jm = {
   state: () => G && { ph: G.ph, hole: G.hole, p: G.p, n: G.n, me: me(), seat: room && room.seat, busy, view, result: !!ui.result, faces: { x: faceOf("x"), o: faceOf("o") }, balls: G.balls, str: G.str, sc: G.sc, pars: G.pars, pend: G.pend && { x: G.pend.x !== null, o: G.pend.o !== null }, traps: G.traps, win: G.win, seed: G.seed },
   info: () => room && gameInfo(),
+  mode: () => ({ solo: !!(room && room.solo), herna: !!herna, local: !!(room && room.local) }),
   viewInfo: () => ({ view, seat: room ? room.seat : null, room: !!room, meta: room && room.meta ? { a: room.meta.g.a, b: room.meta.g.b, so: !!room.meta.so } : null, id: room ? room.id : null }),
   trap(k, x, y, a = 0) { if (!ui.sel || ui.sel !== k) pickTrap(k, true); if (x != null) { ui.rot = a; moveGhost(x, y); } const ok = ui.ghost && ui.ghost.ok; placeTrap(); return ok; },
   autoTrap() { const m = me(), o = J.offer(G, m); pickTrap(o[0], true); const ok = ui.ghost && ui.ghost.ok; placeTrap(); return ok; },

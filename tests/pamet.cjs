@@ -57,8 +57,9 @@ const wait = (p, ms) => p.waitForTimeout(ms);
   for (const r of rows) console.log(`  po jamce ${r.hole}: geometrie v rendereru ${r.geo} (ve scéně žije ${r.live}, osiřelých ${r.geo - r.live}), materiály ve scéně ${r.mats}, textury ${r.tex}, programy ${r.prog}, objektů ${r.objs}, úderů ${r.strokes}`);
   for (const e of errs.slice(0, 5)) console.log("  KONZOLE " + e);
   const orphans = rows.map(r => r.geo - r.live), maxOrph = Math.max(0, ...orphans), last = rows[rows.length - 1], first = rows[0];
+  // textury obličejů se cachují líně (nejvýš 10 výrazů, faceCache ve scene.js): růst na začátku partie je v pořádku, v druhé půlce už ne
   // únik = osiřelé geometrie (po dispose by jich nemělo být víc než pár: sdílené geometrie míčků a částic), nebo roste počet textur / objektů ve scéně
-  const grow = ghostLeak > 40 || rows.length > 2 && (maxOrph > 25 || last.tex > first.tex + 3 || last.objs > first.objs * 2.5 + 50);
+  const grow = ghostLeak > 40 || rows.length > 2 && (maxOrph > 25 || last.tex > first.tex + 12 || last.tex > rows[Math.floor(rows.length / 2)].tex + 3 || last.objs > first.objs * 2.5 + 50);
   console.log(crashed ? "FAIL  stránka spadla" : grow ? `FAIL  únik: osiřelých geometrií až ${maxOrph}, textur ${first && first.tex}→${last && last.tex}` : `PASS  žádný únik (osiřelých geometrií nejvýš ${maxOrph}, textur ${first && first.tex}→${last && last.tex})`);
   await browser.close();
   process.exit(crashed || grow ? 1 : 0);

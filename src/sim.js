@@ -69,7 +69,7 @@
     const mods = ["klid"];
     for (let i = 1; i < 6; i++) { let m; do m = r() < 0.25 ? "klid" : modKeys[Math.floor(r() * modKeys.length)]; while (m === mods[i - 1]); mods.push(m); }
     return sets.map((fs, i) => {
-      const legs = i === 0 ? 3 + (r() < 0.5 ? 1 : 0) : Math.min(4, Math.max(3, fs.length + ri(r, 1, 2)));   // první jamka: 3 nebo 4 nohy, aby se partie lišily už od ní
+      const legs = i === 0 ? 2 + (r() < 0.5 ? 1 : 0) : Math.min(4, Math.max(3, fs.length + ri(r, 1, 2)));   // první jamka: 2 nebo 3 nohy (lehčí rozehrání, par 2–3), tvar se přesto liší od prvního seedu
       const feats = new Array(legs).fill("");
       const slots = shuffle([...Array(legs).keys()], r);
       fs.forEach((f, q) => { feats[slots[q]] = f; });
@@ -317,6 +317,19 @@
       if (s < best.s - 1e-9) best = { s, A, P, res };
     }
     return best;
+  }
+  // Bot „po lidsku“ (sólo režim „Zkusit sám“): z kandidátů (64 směrů × 9 sil, se skutečnými pastmi a stavem míčků) vybere jednu z pěti
+  // nejlepších ran (nejčastěji tu nejlepší) a přidá chybu úhlu (±0,9 %, asi ±3°) a síly (±9 %). Deterministický z klíče, nikdy nepíše do stavu.
+  function botHuman(c, balls, by, traps, n, key) {
+    const st = { c, traps: traps || [], balls, n: n | 0 }, r = rng(hashStr(String(key))), cand = [];
+    for (let a = 0; a < 64; a++) for (const P of BOT_P) {
+      const res = shoot(st, { by, A: a * 64, P }), b = res.balls[by], i = cellIdx(c, b.x, b.y), dd = c.df[i] >= 1e8 ? 99 : c.df[i];
+      cand.push({ s: b.in ? -1e6 : dd + res.pen * 3, A: a * 64, P });
+    }
+    cand.sort((p, q) => p.s - q.s || p.A - q.A || p.P - q.P);
+    const ch = cand[Math.floor(Math.pow(r(), 2.2) * Math.min(cand.length, 5))];
+    const A = Math.round(ch.A + (r() * 2 - 1) * ANG * 0.009), P = Math.round(ch.P * (1 + (r() * 2 - 1) * 0.09));
+    return { A: ((A % ANG) + ANG) % ANG, P: Math.max(40, Math.min(1000, P)) };
   }
   function botPar(c) {
     let balls = { x: { x: c.tee[0], y: c.tee[1], on: true, in: false }, o: { x: 0, y: 0, on: false, in: false } };
@@ -626,7 +639,7 @@
   }
 
   const API = { PI, TAU, dsin, dcos, rng, hashStr, R, CUP_R, VMAX, ANG, ROT, VOID, FLOOR, WATER, BRIDGE, THEMES, THEME_NAMES, MODS, TRAPS, TRAP_KINDS,
-    LOUZE_R, KOPEC_R, KOPEC_H, MLYN_R, STENA_H, plan, build, hole, botShot, botPar, surf, where, trapGeom, trapValid, trapHeight, bladeAngle, shoot, segDist,
+    LOUZE_R, KOPEC_R, KOPEC_H, MLYN_R, STENA_H, plan, build, hole, botShot, botHuman, botPar, surf, where, trapGeom, trapValid, trapHeight, bladeAngle, shoot, segDist,
     other, total, newGame, courseOf, trailing, offer, placeTrap, overlaps, playShot, replay, titles, capOf };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.JM = API;
 })(typeof self !== "undefined" ? self : this);

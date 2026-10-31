@@ -170,7 +170,7 @@ function playWholeGame(seed, first) {
   check("pasti: výsledek nezávisí na tom, kdo past postavil první", st.order === 0, `${st.order} rozdílů z ${st.cases}`);
   // c2) pevný případ, kdy pro past 'o' není v okolí 3 políček žádné platné místo: propadne (pend.o === false)
   {
-    const g0 = { ...J.newGame(3353093136, "x"), hole: 2 }, tx = { k: "mlyn", x: 125, y: 195, a: 0 }, to = { k: "mlyn", x: 125, y: 195, a: 0 };
+    const g0 = { ...J.newGame(2689521274, "x"), hole: 0 }, tx = { k: "mlyn", x: 50, y: 50, a: 0 }, to = { k: "mlyn", x: 50, y: 50, a: 0 };
     const a = J.placeTrap(J.placeTrap(g0, "x", tx), "o", to), b = J.placeTrap(J.placeTrap(g0, "o", to), "x", tx);
     check("pasti: když pro past 'o' není volné místo, propadne (pend.o false, zůstane past x) a ne podle pořadí", a.pend.o === false && a.traps.length === 1 && a.traps[0].by === "x" && a.ph === "play" && JSON.stringify(a.traps) === JSON.stringify(b.traps) && b.pend.o === false);
   }
@@ -188,11 +188,36 @@ function playWholeGame(seed, first) {
   const first20 = new Set(); for (let i = 1; i <= 20; i++) first20.add(skel(J.hole(J.hashStr("g:" + i), 0)));
   check("první jamka: tvar (zatáčky, rysy, rozměr) se liší napříč 20 seedy aspoň v 15 případech", first20.size >= 15, `${first20.size}/20 různých`);
   const legsN = new Set(); for (let i = 1; i <= 40; i++) legsN.add(J.hole(J.hashStr("g:" + i), 0).legs.length);
-  check("první jamka: 3 i 4 nohy (jen jeden rys)", legsN.has(3) && legsN.has(4), [...legsN].join(","));
+  check("první jamka: 2 i 3 nohy (lehčí rozehrání, jen jeden rys)", legsN.has(2) && legsN.has(3) && !legsN.has(4), [...legsN].join(","));
   const seeds = ["3", "7", "11"].map(n => J.hashStr("mistni-" + n + ":0"));
   check("místní režim: seedy ?mistni=3/7/11 jsou tři různé a první jamky se liší", new Set(seeds).size === 3 && new Set(seeds.map(s => skel(J.hole(s, 0)))).size === 3, seeds.join(","));
   const main = require("fs").readFileSync(require("path").join(__dirname, "..", "src", "main.js"), "utf8");
   check("místní režim: main.js skládá room.id z Q.get(\"mistni\") a seed z room.id + gi", /Q\.get\("mistni"\)/.test(main) && /id: "mistni-" \+ seed/.test(main) && /J\.hashStr\(room\.id \+ ":" \+ gi\)/.test(main));
+}
+
+// ---------- 7) první jamka není zbytečně trestající; bot sólo režimu hraje po lidsku, ale dá se porazit ----------
+{
+  const pars = {}; for (let i = 1; i <= 100; i++) { const p = J.hole(J.hashStr("g:" + i), 0).par; pars[p] = (pars[p] || 0) + 1; }
+  check("první jamka: par 2–3 aspoň v 90 ze 100 seedů (lehké rozehrání, bez par 5)", (pars[2] || 0) + (pars[3] || 0) >= 90 && !pars[5], JSON.stringify(pars));
+  // bot „po lidsku“ (botHuman): deterministický, platné údery, v průměru lehce nad par; dokonalý bot (botShot) ho porazí jen někdy
+  let strokes = 0, par = 0, same = true, perfect = 0, holes = 0, beat = 0;
+  const t0 = performance.now();
+  for (let seed = 1; seed <= 12; seed++) for (let h = 0; h < 6; h++) {
+    const c = J.hole(seed * 7919, h); par += c.par; holes++;
+    const play = fn => {
+      let balls = { x: { x: 0, y: 0, on: false, in: false }, o: { x: c.tee[0], y: c.tee[1], on: true, in: false } }, k = 0;
+      while (k < J.capOf(c)) { const b = fn(balls, k), res = J.shoot({ c, traps: [], balls, n: k }, { by: "o", A: b.A, P: b.P }); balls = res.balls; k += 1 + res.pen; if (balls.o.in) break; }
+      return k;
+    };
+    const hum = play((balls, k) => J.botHuman(c, balls, "o", [], k, seed + ":" + h + ":" + k));
+    const hum2 = play((balls, k) => J.botHuman(c, balls, "o", [], k, seed + ":" + h + ":" + k));
+    const per = play(balls => J.botShot({ ...c }, balls, "o"));
+    if (hum !== hum2) same = false;
+    strokes += hum; perfect += per; if (per < hum) beat++;
+  }
+  check("botHuman: deterministický (stejný klíč = stejná rána, 72 jamek dvakrát)", same);
+  check("botHuman: v průměru lehce nad par (1,0–1,5× par), tedy ne dokonalý ani hloupý", strokes / par >= 1.0 && strokes / par <= 1.5, `${strokes} ran / par ${par} = ${(strokes / par).toFixed(2)}, ${ms(t0)} ms`);
+  check("botHuman: dokonalý bot ho porazí jen na části jamek (s botem se dá utkat)", beat > 0 && beat < holes, `dokonalý lepší ${beat}× z ${holes} jamek, ran dokonalého ${perfect}`);
 }
 
 console.log(`\n${pass}/${pass + fail} PASS${fail ? `, ${fail} FAIL` : ""}`);
