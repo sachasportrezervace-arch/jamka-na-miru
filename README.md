@@ -25,7 +25,7 @@ Hra umí protokol místnosti Herny (`../HERNA-PROTOKOL.md`, verze 1): `<meta nam
 se jmény z `names` (hráč x = zakladatel, jeho jméno je `names[seat]`), druhý hráč čeká („Čeká se, až hra naskočí“) a po vzniku dokumentu si sám sedne na místo o.
 Skryté je sdílení odkazu, „Vyzvat soupeře“, „Zkusit sám“, celá obrazovka a nápověda Přidat na plochu. Hra posílá rodiči `pripraveno`, `stav` (`ceka`, `hraje`, `konec`),
 `vysledek` (`partie` = `r:číslo partie`, `vitez` = sedadlo v Herně nebo `null`) a po kliknutí na „Jiná hra“ zprávu `jina-hra`. Odveta jede dál na stejném dokumentu.
-Bez platného `#herna=1` se hra chová jako dřív.
+Karta konce, výsledek jamky i výběr pasti se vejdou do iframe 390×613 (iPhone 13 pod lištou Herny 51 px) bez scrollu, hlídá to `tests/herna.cjs`. Bez platného `#herna=1` se hra chová jako dřív.
 
 ## Spuštění a testy
 

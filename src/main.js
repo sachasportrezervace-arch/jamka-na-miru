@@ -196,7 +196,7 @@ function paintCard() {
     <tbody><tr class="r-par"><th>Par</th>${pars}<td class="sum">${G.pars.reduce((a, b) => a + b, 0) || ""}</td></tr>${rows}</tbody></table>`;
 }
 // spodní lišta: co teď dělat (a výsledek jamky)
-function paintDock() { paintDock0(); camVis(); document.body.classList.toggle("dockQuiet", $("dock").classList.contains("quiet")); requestAnimationFrame(layout); }
+function paintDock() { paintDock0(); camVis(); document.body.classList.toggle("dockQuiet", $("dock").classList.contains("quiet")); document.body.style.setProperty("--dockOH", $("dock").offsetHeight + "px"); requestAnimationFrame(layout); }
 function resultHtml(r) {
   const win = r.v.x < r.v.o ? "x" : r.v.o < r.v.x ? "o" : "=";
   const head = win === "=" ? "Remíza na jamce" : (room.local && !room.solo) || !room.seat ? `Jamku bere ${esc(nameOf(win))}` : win === room.seat ? "Jamku bereš ty" : `Jamku bere ${esc(nameOf(win))}`;

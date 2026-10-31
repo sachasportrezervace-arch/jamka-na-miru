@@ -71,7 +71,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 #menu .mi[hidden] { display: none; }
 #menu .mi svg { width: 21px; height: 21px; flex: none; }
 /* Oddálit / K míčku: kulaté tlačítko přímo v panelu (vpravo), mimo dráhu a nelepí se na panel; panel mu dělá místo (body.camOn) */
-#bCam { position: absolute; right: calc((100% - min(560px, 100% - 24px)) / 2 + 14px); bottom: calc(var(--safeB) + 12px + (var(--dockOH, 60px) - 46px) / 2); width: 54px; height: 46px; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 13px; background: #F1EEF6; box-shadow: none; font-weight: 700; font-size: 11px; line-height: 1; z-index: 2; }
+#bCam { position: absolute; right: calc((100% - min(560px, 100% - 24px)) / 2 + 14px); bottom: max(calc(var(--safeB) + 12px), calc(var(--safeB) + 12px + (var(--dockOH, 60px) - 46px) / 2)); width: 54px; height: 46px; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 13px; background: #F1EEF6; box-shadow: none; font-weight: 700; font-size: 11px; line-height: 1; z-index: 2; }
 #bCam svg { width: 19px; height: 19px; }
 body.camOn #dock { padding-right: 82px; }
 body.dockQuiet #bCam { display: none; }
@@ -228,7 +228,7 @@ body.menu #topbar, body.menu #bMenu, body.menu #menu, body.menu #card, body.menu
   #menu, body.cardOpen #card { right: 10px; top: calc(var(--safeT) + 104px); }
   body.cardOpen #card { left: 10px; width: auto; }
   #dock { width: calc(100% - 20px); bottom: calc(var(--safeB) + 10px); padding: 11px 12px; }
-  #bCam { right: 22px; bottom: calc(var(--safeB) + 10px + (var(--dockOH, 60px) - 46px) / 2); }
+  #bCam { right: 22px; bottom: max(calc(var(--safeB) + 10px), calc(var(--safeB) + 10px + (var(--dockOH, 60px) - 46px) / 2)); }
   .cards { grid-template-columns: 1fr 1fr; gap: 6px; }
   .cards .tc:last-child:nth-child(odd) { grid-column: 1 / 3; }
   .tc { padding: 7px 8px; grid-template-columns: 30px 1fr; column-gap: 6px; }
@@ -236,6 +236,26 @@ body.menu #topbar, body.menu #bMenu, body.menu #menu, body.menu #card, body.menu
   .tc span { font-size: 11px; }
   #pow i { width: 58px; }
   #pow b { min-width: 38px; font-size: 15px; }
+}
+/* nízký displej (iPhone v Safari ~664 px, v iframe Herny jen 613 px): karta konce partie s titulky, skórkartou i tlačítky bez scrollu */
+@media (max-height: 700px) {
+  #view { padding: calc(var(--safeT) + 8px) 12px calc(var(--safeB) + 8px); }
+  .panel.end { padding: 14px 14px; }
+  .endcard { gap: 6px; }
+  .endpair { gap: 14px; }
+  .endpair .who { font-size: 12px; gap: 0; }
+  .endpair .who .bi { width: 52px; height: 52px; }
+  .endpair .who.lose .bi { width: 40px; height: 40px; }
+  .endcard h2 { font-size: 22px; }
+  .endcard .score { font-size: 19px; }
+  .endcard .cardwrap { padding: 3px 6px; }
+  .endcard .cardwrap td, .endcard .cardwrap th { padding: 2px 3px; }
+  .endcard .titles { gap: 4px; }
+  .endcard .titles li { padding: 4px 10px; line-height: 1.2; }
+  .endcard .titles li b { font-size: 14px; }
+  .endcard .titles li span { font-size: 12px; }
+  .endcard .btn { min-height: 44px; }
+  .endcard .wait, .endcard .trn-note { font-size: 13px; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
   #dock { width: min(420px, 46vw); left: auto; right: 12px; transform: none; bottom: calc(var(--safeB) + 8px); max-height: calc(100% - 16px); overflow-y: auto; padding: 9px 11px; gap: 7px; }
@@ -249,7 +269,7 @@ body.menu #topbar, body.menu #bMenu, body.menu #menu, body.menu #card, body.menu
   #bMenu { right: auto; left: 12px; top: 62px; width: 38px; height: 38px; }
   #menu, body.cardOpen #card { right: auto; left: 12px; top: 106px; }
   body.cardOpen #card { width: min(380px, 50vw); }
-  #bCam { right: 23px; bottom: calc(var(--safeB) + 8px + (var(--dockOH, 56px) - 46px) / 2); }
+  #bCam { right: 23px; bottom: max(calc(var(--safeB) + 8px), calc(var(--safeB) + 8px + (var(--dockOH, 56px) - 46px) / 2)); }
 }
 }
 </style>
