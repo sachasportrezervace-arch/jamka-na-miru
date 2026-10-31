@@ -111,9 +111,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 #card table, .cardwrap table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
 #card th, #card td, .cardwrap th, .cardwrap td { padding: 4px 3px; text-align: center; }
 #card thead td, .cardwrap thead td { color: var(--mut); font-weight: 700; font-size: 11px; }
-#card tbody th, .cardwrap tbody th { text-align: left; font-weight: 700; white-space: nowrap; display: flex; align-items: center; gap: 6px; max-width: 110px; overflow: hidden; }
-#card th .bi, .cardwrap th .bi { width: 18px; height: 18px; }
-#card th span, .cardwrap th span { overflow: hidden; text-overflow: ellipsis; }
+#card tbody th, .cardwrap tbody th { text-align: left; font-weight: 700; white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+#card th .bi, .cardwrap th .bi { width: 18px; height: 18px; display: inline-block; vertical-align: middle; margin-right: 6px; }
+#card th span, .cardwrap th span { vertical-align: middle; }
 .r-par td, .r-par th { color: var(--mut); font-weight: 600; }
 td.now { background: #FFF6D6; }
 td.eso, td.pod { color: var(--ok); font-weight: 800; }
@@ -156,7 +156,7 @@ td.sum { font-weight: 800; font-family: var(--disp); font-size: 15px; }
 #net { position: absolute; left: 12px; bottom: calc(var(--safeB) + 12px); background: var(--bad); color: #fff; font-weight: 700; font-size: 12px; padding: 5px 10px; border-radius: 10px; }
 #net[hidden] { display: none; }
 #iosHint { position: absolute; left: 12px; right: 12px; bottom: calc(var(--safeB) + 12px); background: var(--ink); color: #fff; border-radius: 16px; padding: 12px 44px 12px 14px; font-size: 13.5px; z-index: 6; }
-#iosHint[hidden] { display: none; }
+#iosHint[hidden], body:not(.menu) #iosHint { display: none; }
 #iosHintX { position: absolute; right: 8px; top: 8px; width: 30px; height: 30px; border-radius: 9px; background: rgba(255,255,255,.14); color: #fff; font-size: 18px; }
 body.menu #topbar, body.menu #tools, body.menu #dock, body.menu #bCam, body.menu #side { visibility: hidden; }
 
@@ -180,7 +180,7 @@ body.menu #topbar, body.menu #tools, body.menu #dock, body.menu #bCam, body.menu
   .navrh-b .chip { display: none; }
   .navrh-b #holePill { justify-self: center; }
   .navrh-b #side { display: flex; }
-  .navrh-b #card { display: block; position: absolute; left: 30px; top: 62px; width: 312px; }
+  .navrh-b #card { display: block; position: absolute; left: 16px; top: 84px; width: 340px; background: var(--paper); border-radius: 18px; box-shadow: var(--sh); padding: 8px 12px; }
   .navrh-b #dock { left: 16px; transform: none; width: 340px; bottom: calc(var(--safeB) + 16px); }
   .navrh-b .cards { grid-template-columns: 1fr; }
 }
@@ -189,14 +189,16 @@ body.menu #topbar, body.menu #tools, body.menu #dock, body.menu #bCam, body.menu
 #side .brand .bi { width: 30px; height: 30px; } #side .brand .bi + .bi { margin-left: -14px; }
 @media (max-width: 899px) {
   .navrh-b .chip { display: none; }
-  .navrh-b #topbar { padding-top: calc(var(--safeT) + 82px); grid-template-columns: 1fr; }
+  .navrh-b #topbar { padding-top: calc(var(--safeT) + 98px); grid-template-columns: 1fr; }
   .navrh-b #holePill { grid-column: 1; justify-self: center; }
   .navrh-b #card { display: block; position: absolute; left: 10px; right: 10px; top: calc(var(--safeT) + 10px); background: var(--paper); border-radius: 16px; box-shadow: var(--sh); padding: 4px 6px; }
   .navrh-b #card table { font-size: 12px; }
   .navrh-b #card thead { display: none; }
+  .navrh-b #card table { table-layout: fixed; }
   .navrh-b #card th, .navrh-b #card td { padding: 2px 2px; }
-  .navrh-b #card tbody th { max-width: 76px; }
-  .navrh-b #tools { top: calc(var(--safeT) + 126px); }
+  .navrh-b #card tbody th { width: 92px; max-width: none; }
+  .navrh-b #card td.sum { width: 34px; }
+  .navrh-b #tools { top: calc(var(--safeT) + 142px); }
 }
 
 /* ---------- mobil ---------- */
@@ -210,9 +212,13 @@ body.menu #topbar, body.menu #tools, body.menu #dock, body.menu #bCam, body.menu
   #tools { top: auto; bottom: calc(var(--safeB) + 12px + var(--dockH, 0px) + 54px); }
   .ib { width: 38px; height: 38px; }
   #dock { width: calc(100% - 20px); bottom: calc(var(--safeB) + 10px); padding: 11px 12px; }
-  .cards { grid-template-columns: 1fr; gap: 6px; }
-  .tc { padding: 7px 9px; }
-  #pow { top: auto; bottom: calc(var(--safeB) + 12px + var(--dockH, 0px) + 6px); }
+  .cards { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .cards .tc:last-child:nth-child(odd) { grid-column: 1 / 3; }
+  .tc { padding: 7px 8px; grid-template-columns: 30px 1fr; column-gap: 6px; }
+  .tc svg { width: 30px; height: 30px; }
+  .tc span { font-size: 11px; }
+  #pow { top: auto; left: 12px; transform: scale(.9); transform-origin: left bottom; bottom: calc(var(--safeB) + 12px + var(--dockH, 0px) + 6px); }
+  #pow.on { transform: scale(1); }
 }
 @media (max-height: 500px) and (orientation: landscape) {
   #dock { width: min(420px, 46vw); left: auto; right: 12px; transform: none; }

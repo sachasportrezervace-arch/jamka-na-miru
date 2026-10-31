@@ -85,7 +85,7 @@ function layout() {
   const h = innerHeight, top = $("topbar").getBoundingClientRect().bottom, bot = h - $("dock").getBoundingClientRect().top;
   const side = $("side") && getComputedStyle($("side")).display !== "none" ? $("side").getBoundingClientRect() : null;
   document.body.style.setProperty("--dockH", ($("dock").offsetHeight && getComputedStyle($("dock")).opacity !== "0" ? $("dock").offsetHeight + 8 : 0) + "px");
-  sc.setHudPad({ t: Math.min(0.5, (top + 8) / h * 2), b: Math.min(0.7, (bot + 8) / h * 2), l: side ? (side.right + 8) / innerWidth * 2 : 0.04, r: 0.04 });
+  sc.setHudPad({ t: Math.min(0.5, (top + 8) / h * 2), b: Math.min(0.95, (bot + 8) / h * 2), l: side ? (side.right + 8) / innerWidth * 2 : 0.04, r: 0.04 });
 }
 addEventListener("resize", () => setTimeout(layout, 30));
 
@@ -155,7 +155,7 @@ function paintDock0() {
     if (m && G.pend[m] === null) {
       const opts = J.offer(G, m), trailing = J.trailing(G, m);
       d.classList.add("traps");
-      d.innerHTML = `<div class="say"><b>Postav ${room.local ? esc(nameOf(other(m))) : "soupeři"} past</b><span>${trailing ? "Ztrácíš, tak vybíráš ze tří." : "Tebe nechá být, jen soupeře."}</span></div>
+      d.innerHTML = `<div class="say"><b>${room.local ? `${esc(nameOf(m))} staví past soupeři` : "Postav soupeři past"}</b><span>${trailing ? "Ztrácíš, tak vybíráš ze tří pastí." : "Past chytí jen soupeře, tebe nechá být."}</span></div>
         <div class="cards">${opts.map(k => `<button class="tc${ui.sel === k ? " on" : ""}" data-k="${k}">${TRAP_ICON[k]}<b>${J.TRAPS[k].name}</b><span>${J.TRAPS[k].desc}</span></button>`).join("")}</div>
         <div class="row">${ui.sel && J.TRAPS[ui.sel].rot ? '<button class="btn alt" id="bRot">Otočit</button>' : ""}<button class="btn" id="bPlace" ${ui.sel && ui.ghost && ui.ghost.ok ? "" : "disabled"}>${ui.sel ? (ui.ghost && ui.ghost.ok ? "Postavit sem" : "Klepni do dráhy") : "Vyber past"}</button></div>`;
       d.querySelectorAll(".tc").forEach(b => b.addEventListener("click", () => pickTrap(b.dataset.k)));
@@ -314,6 +314,7 @@ function pickTrap(k, quiet) {
   let spot = keep ? { x: keep.x / 20, y: keep.y / 20 } : null;
   if (!spot || !J.trapValid(c, { k, x: keep.x, y: keep.y, a: 0, by: me() })) spot = cand.find(q => J.trapValid(c, { k, x: Math.round(q.x * 20), y: Math.round(q.y * 20), a: 0 })) || cand[0];
   moveGhost(spot.x, spot.y);
+  if (G && G.ph === "trap") paintDock();      // zvýrazní vybranou kartu a tlačítka
   if (!quiet) sound.lip();
 }
 function moveGhost(x, y) {

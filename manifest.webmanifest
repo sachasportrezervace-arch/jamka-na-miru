@@ -1,0 +1,16 @@
+{
+  "name": "Jamka na míru",
+  "short_name": "Jamka na míru",
+  "description": "Minigolf pro dva na jednom odkazu. Před každou jamkou postavíš soupeři past.",
+  "lang": "cs",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#CFEBD9",
+  "theme_color": "#CFEBD9",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

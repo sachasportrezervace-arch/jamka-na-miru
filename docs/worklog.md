@@ -1,5 +1,19 @@
 # Worklog – Jamka na míru
 
+## 2026-10-31 ~20:00 – první spuštění v prohlížeči (session účtu P)
+- Hra poběžela napoprvé: celá partie (6 jamek, oba hráči, pasti, údery přes `__jm`) projde v Chromiu 1440x900 i WebKitu iPhone 13
+  bez chyb v konzoli; skóre je v obou prohlížečích totožné (determinismus sedí na `sc` celé partie).
+- Opraveno: (1) `scene.js` frame(): záporný `tick` na začátku animace úderu (rAF čas < t0) dal `undefined` souřadnice míčku, NaN v kameře
+  a prázdnou scénu po prvním úderu; (2) obličej míčku seděl uvnitř koule (vidět jen zorničky), teď před povrchem; (3) kamera za míčkem
+  dál a výš (`dist` 7,4 / 9 na výšku, pitch 0,85); (4) `main.js`: karta pasti se po výběru nezvýrazňovala (pickTrap nepřekresloval dock),
+  nadpis „Postav Radka past“ (skloňování) → „Mark staví past soupeři“; (5) CSS: iOS nápověda zakrývala dock (jen v menu), karty pastí
+  na mobilu ve 2 sloupcích, ukazatel síly nepřekrývá „Oddálit“, B: skórkarta jako panel / na mobilu níž pod pill, tabulka bez flex na `th`.
+- Přidáno: `manifest.webmanifest`, `icons/` (+ `tools/make-icons.cjs`), `tests/rendery.cjs` (rendery A/B do `design/`).
+- Rendery: `design/{a,b}-{desktop,iphone}-{past,uder,vysledek,konec}.png`. Spuštění: server na 8808 + `node tests/rendery.cjs [a|b|ab]` (~4,5 min).
+- Zbývá: výběr návrhu (design-eye), smazání druhého návrhu z CSS, testy (`tests/duel.cjs` vzor Ovocný souboj, 2 prohlížeče bit po bitu,
+  divák, 3 partie se liší, výkon iPhone), design-eye „profi indie hra“, repo + Pages + živý test. NEOVĚŘENO: online režim přes mantledb
+  (jen `?mistni=`), skutečný iPhone (jen emulace WebKit), zvuk, fullscreen, zatáčky/svahy všech témat v animaci úderu (zkontrolovány jen statické pohledy 12 jamek).
+
 ## 2026-10-31 ~19:30 – předávka (kontext plný), session účtu P (local_b92f…)
 
 Zadání (od řídicí session): minigolf pro dva na jednom odkazu, 6 jamek, méně ran vyhrává. Twist: před jamkou

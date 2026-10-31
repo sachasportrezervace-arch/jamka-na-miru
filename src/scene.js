@@ -104,7 +104,7 @@ export function createScene(canvas) {
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.IcosahedronGeometry(J.R, 2), lowMat(PLAYER[k].ball));
     const face = new THREE.Sprite(new THREE.SpriteMaterial({ map: faceTex("idle"), transparent: true, depthWrite: false }));
-    face.scale.set(J.R * 1.7, J.R * 1.7, 1);
+    face.scale.set(J.R * 1.9, J.R * 1.9, 1);
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(J.R * 3.2, J.R * 3.2), new THREE.MeshBasicMaterial({ map: blob, transparent: true, depthWrite: false }));
     sh.rotation.x = -Math.PI / 2;
     const ring = new THREE.Mesh(new THREE.RingGeometry(J.R * 1.55, J.R * 1.85, 24), new THREE.MeshBasicMaterial({ color: PLAYER[k].ball, transparent: true, opacity: 0.0, depthWrite: false }));
@@ -332,7 +332,7 @@ export function createScene(canvas) {
     o.sh.position.set(o.x, z - J.R + 0.015, o.y);
     o.ring.position.set(o.x, z - J.R + 0.02, o.y);
     // obličej natočený ke kameře, kousek před míčkem
-    const v = camera.position.clone().sub(o.g.position).normalize().multiplyScalar(J.R * 0.82);
+    const v = camera.position.clone().sub(o.g.position).normalize().multiplyScalar(J.R * 1.04);
     o.face.position.copy(v);
   }
   for (const k of ["x", "o"]) balls[k].hop = 0;
@@ -437,7 +437,7 @@ export function createScene(canvas) {
       const k = 1 - Math.pow(0.002, dt);
       cam.tx += (o.x - cam.tx) * k; cam.tz += (o.y - cam.tz) * k;
       if (cam.want) { let d = cam.want.yaw - cam.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; cam.yaw += d * (1 - Math.pow(0.01, dt)); }
-      tx = cam.tx + cam.panX; tz = cam.tz + cam.panZ; ty = J.surf(c, cam.tx, cam.tz).h; dist = 6.2 * cam.zoom; yaw = cam.yaw; pitch = 0.78;
+      tx = cam.tx + cam.panX; tz = cam.tz + cam.panZ; ty = J.surf(c, cam.tx, cam.tz).h; dist = (aspect < 1 ? 9 : 7.4) * cam.zoom; yaw = cam.yaw; pitch = 0.85;
     } else {
       tx = holeFit.tx + cam.panX; ty = holeFit.ty; tz = holeFit.tz + cam.panZ; dist = holeFit.dist * cam.zoom; yaw = 0; pitch = holeFit.pitch;
       if (cam.yaw !== 0) { let d = -cam.yaw; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; cam.yaw += d * (1 - Math.pow(0.01, dt)); yaw = cam.yaw; }
@@ -491,12 +491,12 @@ export function createScene(canvas) {
   function frame(now) {
     if (!running) return;
     requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
     if (!c) return;
     if (anim) {
       const tick = Math.floor((now - anim.t0) / 1000 * 60 * anim.speed);
       const fr = anim.fr, N = fr.x.length / 2;
-      const i = Math.min(N - 1, tick);
+      const i = Math.max(0, Math.min(N - 1, tick));   // tick může být záporný: rAF čas je z počátku snímku, t0 vznikl později
       for (const k of ["x", "o"]) if (balls[k].vis) { balls[k].x = fr[k][i * 2]; balls[k].y = fr[k][i * 2 + 1]; }
       setBlades(anim.n, i);
       while (anim.i <= i && anim.onEv) { anim.onEv(anim.i); anim.i++; }
