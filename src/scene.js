@@ -467,7 +467,7 @@ export function createScene(canvas) {
     const pts = [];
     for (const x of [x0 - 0.3, x1 + 0.3]) for (const z of [z0 - 0.3, z1 + 0.3]) for (const y of [0, maxH + 0.5]) pts.push(new THREE.Vector3(x, y, z));
     pts.push(new THREE.Vector3(c.cup[0], J.surf(c, c.cup[0], c.cup[1]).h + 1.4, c.cup[1]));
-    const m = margins(); applyOffset();
+    const m = margins(); applyOffset(offFor("x"));
     let lo = 4, hi = 80;
     for (let it = 0; it < 24; it++) {
       const d = (lo + hi) / 2;
@@ -482,6 +482,11 @@ export function createScene(canvas) {
   // místo pro HUD v jednotkách NDC (0..2) – nastavuje main podle rozvržení
   let hudPad = { t: 0.16, b: 0.22, l: 0.04, r: 0.04 };
   const margins = () => hudPad;
+  // Nízký displej na šířku (iPhone): v módu „míček“ je panel jen malé obdélníky (hudRects), ne pruh přes celou šířku; obraz se posune
+  // doleva (xs v px), ať míček sedí vedle panelu a před ním je vidět víc dráhy. ballPad = { t, b, l, r, xs } nebo null.
+  let ballPad = null;
+  const padFor = mode => mode === "ball" && ballPad ? ballPad : hudPad;
+  const offFor = mode => { const pd = padFor(mode); return { x: mode === "ball" && ballPad ? ballPad.xs : 0, y: (pd.b - pd.t) * H0 / 4 }; };
   // další tlačítka HUD mimo pruhy (nabídka vpravo nahoře, Oddálit vpravo dole), v CSS pixelech: [x0, y0, x1, y1]
   let hudRects = [];
   const rectHit = q => { const px = (q.x + 1) / 2 * W0, py = (1 - q.y) / 2 * H0; for (const r of hudRects) if (px >= r[0] - 6 && px <= r[2] + 6 && py >= r[1] - 6 && py <= r[3] + 6) return true; return false; };
@@ -528,17 +533,19 @@ export function createScene(canvas) {
   // + jamka při přijatelném odstupu kamery, pak zkracovaná cesta (jamka mimo obrazovku), pak vyšší poloha míčku.
   function fitBall(k) {
     if (!c) return;
-    const o = balls[k], pitch = aspect < 1 ? 1.12 : 1.0, dMax = Math.min(aspect < 1 ? 24 : 25, H0 * 0.037);   // míček má mít aspoň ~12 px (na šířku iPhonu je obraz nízký, tam se víc neoddaluje)
+    const o = balls[k], pitch0 = aspect < 1 ? 1.12 : 1.0, dMax = ballPad ? H0 * 0.05 : Math.min(aspect < 1 ? 24 : 25, H0 * 0.037);   // míček má mít aspoň ~12 px (na šířku iPhonu je obraz nízký, tam se víc neoddaluje)
+    let pitch = pitch0;
+    const pitches = ballPad ? [pitch0, 0.82, 0.66] : [pitch0];     // nízký displej na šířku: i plošší pohled podél dráhy
     const yaw1 = cam.want ? (cam.want.base != null ? cam.want.base : cam.want.yaw) : 0;
     // kandidáti na natočení: po směru cesty (jako dosud), pak přímo k jamce, pak něco mezi (vejde se víc, hlavně na výšku)
     const yawCup = Math.atan2(-(c.cup[0] - o.x), -(c.cup[1] - o.y)), dy = Math.atan2(Math.sin(yawCup - yaw1), Math.cos(yawCup - yaw1));
-    const yaws = [yaw1, yaw1 + dy / 2, yaw1 + dy];
+    const yaws = ballPad ? [yaw1, yaw1 + dy / 3, yaw1 + dy / 2, yaw1 + dy * 2 / 3, yaw1 + dy] : [yaw1, yaw1 + dy / 2, yaw1 + dy];
     const crit = v => { v.crit = true; return v; };
-    const full = pathAhead(o, 80), m = margins();
+    const full = pathAhead(o, 80), m = padFor("ball");
     const gh = (x, y) => J.surf(c, x, y).h, ty = gh(o.x, o.y);
     const ball = new THREE.Vector3(o.x, ty + J.R, o.y), tmp = new THREE.Vector3();
     const ylo = -1 + m.b + 0.05, yhi = 1 - m.t - 0.05, xl = -1 + m.l + 0.05, xr = 1 - m.r - 0.05;
-    applyOffset();
+    applyOffset(offFor("ball"));
     const cupAll = cupAllPts();
     const inBand = q => q.z < 1 && q.x >= xl && q.x <= xr && q.y <= yhi && q.y >= ylo, inFree = q => inBand(q) && !rectHit(q), onScr = q => q.z < 1 && Math.abs(q.x) < 1.02 && Math.abs(q.y) < 1.02;
     const cupOk = () => { let any = false, all = true; for (const p of cupAll) { const q = tmp.copy(p).project(camera); if (onScr(q)) any = true; if (!inFree(q)) all = false; } return all || !any; };
@@ -573,26 +580,32 @@ export function createScene(canvas) {
       if (cupIn) for (const p of cupAll) P.push(crit(p));
       return { P, cupIn };
     };
-    const stages = [{ cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax * 0.84, name: "cela" },      // celá cesta + jamka, jen když při tom nejsou objekty drobné
-      { cuts: [20, 17, 14, 11, 8, 6], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi" },                     // jamka celá mimo obrazovku
-      { cuts: [Infinity], ybs: [0.5, 0.7], dLim: dMax, name: "vys" }];
+    const stages = ballPad
+      ? [{ cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax * 0.84, name: "cela" },
+        { cuts: [20, 17, 14, 11, 9.5, 8.5, 8], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi" },
+        { cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax, name: "cela2" },                           // nízký displej: raději drobnější míček než jamka těsně za okrajem
+        { cuts: [7, 6], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi2" },
+        { cuts: [Infinity], ybs: [0.5, 0.7], dLim: dMax, name: "vys" }]
+      : [{ cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax * 0.84, name: "cela" },      // celá cesta + jamka, jen když při tom nejsou objekty drobné
+        { cuts: [20, 17, 14, 11, 8, 6], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi" },                     // jamka celá mimo obrazovku
+        { cuts: [Infinity], ybs: [0.5, 0.7], dLim: dMax, name: "vys" }];
     let best = null;
     for (const st of stages) {
       for (const cut of st.cuts) {
         const { P, cupIn } = pathP(cut);
         if (cut === Infinity && !cupIn) continue;
-        for (const yw of yaws) { for (const ybf of st.ybs) { best = solve(P, yw, cupIn, ybf, st.dLim); if (best) { best.how = `${st.name} cut ${cut} yaw ${yaws.indexOf(yw)} yb ${ybf}`; break; } } if (best) break; }
+        for (const pt of pitches) { pitch = pt; for (const yw of yaws) { for (const ybf of st.ybs) { best = solve(P, yw, cupIn, ybf, st.dLim); if (best) { best.how = `${st.name} cut ${cut} pitch ${pt} yaw ${yaws.indexOf(yw)} yb ${ybf}`; best.pitch = pt; break; } } if (best) break; } if (best) break; }
         if (best) break;
       }
       if (best) break;
     }
     if (!best) {                                         // nouzově: míček + pár políček cesty, jamka musí být celá mimo nebo celá uvnitř
       const { P } = pathP(2);
-      for (const yw of yaws) { for (const ybf of [0.3, 0.12, 0.5]) { best = solve(P, yw, false, ybf, dMax); if (best) { best.how = `nouze yaw ${yaws.indexOf(yw)} yb ${ybf}`; break; } } if (best) break; }
-      best = best || { d: dMax, s: 4, yaw: yaw1, off: [-Math.sin(yaw1) * 4, -Math.cos(yaw1) * 4] };
+      for (const pt of pitches) { pitch = pt; for (const yw of yaws) { for (const ybf of [0.3, 0.12, 0.5]) { best = solve(P, yw, false, ybf, dMax); if (best) { best.how = `nouze pitch ${pt} yaw ${yaws.indexOf(yw)} yb ${ybf}`; best.pitch = pt; break; } } if (best) break; } if (best) break; }
+      best = best || { d: dMax, s: 4, yaw: yaw1, pitch: pitch0, off: [-Math.sin(yaw1) * 4, -Math.cos(yaw1) * 4] };
     }
     if (cam.want) cam.want.yaw = best.yaw;
-    cam.fr = { off: best.off, dist: best.d, pitch, how: best.how || "FALLBACK dMax" };
+    cam.fr = { off: best.off, dist: best.d, pitch: best.pitch || pitch0, how: best.how || "FALLBACK dMax" };
   }
   function frameBall(k, snap) {
     cam.follow = k; const o = balls[k];
@@ -637,11 +650,11 @@ export function createScene(canvas) {
   }
   function placeCupCam(d) {
     const ch = J.surf(c, c.cup[0], c.cup[1]).h;
-    applyOffset();
+    applyOffset(offFor("x"));
     camera.position.copy(camPos(c.cup[0], ch, c.cup[1], d, 0, 1.0)); camera.lookAt(c.cup[0], ch, c.cup[1]); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
   }
   function holeCam() {
-    applyOffset();
+    applyOffset(offFor("x"));
     camera.position.copy(camPos(holeFit.tx, holeFit.ty, holeFit.tz, holeFit.dist, 0, holeFit.pitch)); camera.lookAt(holeFit.tx, holeFit.ty, holeFit.tz); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
   }
   // vzdálenost kamery u jamky, při které jsou jamka, praporek a míčky celé ve volné ploše (mezi HUD nahoře a panelem dole)
@@ -685,12 +698,15 @@ export function createScene(canvas) {
     const k2 = 1 - Math.pow(0.0005, dt);
     cam.cur.p.lerp(p, k2); cam.cur.t.lerp(new THREE.Vector3(tx, ty, tz), k2);
     camera.position.copy(cam.cur.p); camera.lookAt(cam.cur.t);
-    // HUD posun: optický střed mezi lištami
-    applyOffset();
+    // HUD posun: optický střed mezi lištami (a v módu míček na nízkém displeji i do strany); plynule při změně módu
+    const tg = offFor(cam.mode === "ball" && cam.follow ? "ball" : "x");
+    if (!cam.off || !cam.curSnap) { cam.off = { ...tg }; cam.curSnap = true; }
+    cam.off.x += (tg.x - cam.off.x) * k2; cam.off.y += (tg.y - cam.off.y) * k2;
+    applyOffset(cam.off);
   }
-  function snapCam() { cam.cur = null; }
+  function snapCam() { cam.cur = null; cam.curSnap = false; }
   // optický střed mezi horní a spodní lištou HUDu
-  function applyOffset() { camera.setViewOffset(W0, H0, 0, (hudPad.b - hudPad.t) * H0 / 4, W0, H0); }
+  function applyOffset(o) { o = o || offFor(cam.mode === "ball" ? "ball" : "x"); camera.setViewOffset(W0, H0, o.x, o.y, W0, H0); }
 
   // ---------- přepočet obrazovky na dráhu ----------
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
@@ -771,9 +787,9 @@ export function createScene(canvas) {
   return {
     setHole, setTraps, dropTraps, sinkBall, showCup, setBlades, fadeOwn, setGhost, setBall, setFace, turnRing, setAim, burst,
     setMode, frameBall, snapCam, groundAt, toScreen, playFrames, skip, resize,
-    get mode() { return cam.mode; }, cam, balls, get busy() { return !!anim; },
+    get mode() { return cam.mode; }, get pads() { return { hudPad, ballPad, hudRects }; }, cam, balls, get busy() { return !!anim; },
     setHudRects(r) { hudRects = r || []; },
-    setHudPad(p) { hudPad = p; fitHole(); redecorate(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow); if (cam.mode === "cup") fitCup(); },
+    setHudPad(p, bp) { hudPad = p; ballPad = bp || null; fitHole(); redecorate(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow); if (cam.mode === "cup") fitCup(); },
     zoomBy(f) { cam.zoom = Math.max(0.45, Math.min(cam.mode === "ball" ? 1.7 : 1.5, cam.zoom * f)); },
     pan(dx, dz) { cam.panX += dx; cam.panZ += dz; },
     stop() { running = false; },

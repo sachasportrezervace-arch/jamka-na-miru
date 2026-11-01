@@ -98,7 +98,16 @@ function layout() {
   document.body.style.setProperty("--dockH", ($("dock").offsetHeight && getComputedStyle($("dock")).opacity !== "0" ? $("dock").offsetHeight + 8 : 0) + "px");
   const box = id => { const e = $(id); if (!e || e.hidden) return null; const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return null; const r = e.getBoundingClientRect(); return r.width ? [r.left, r.top, r.right, r.bottom] : null; };
   sc.setHudRects([box("bMenu"), box("bCam")].filter(Boolean));
-  sc.setHudPad({ t: Math.min(0.5, (top + 8) / h * 2), b: Math.min(0.95, (bot + 8) / h * 2), l: 0.04, r: 0.04 });
+  const pad = { t: Math.min(0.5, (top + 8) / h * 2), b: Math.min(0.95, (bot + 8) / h * 2), l: 0.04, r: 0.04 };
+  // iPhone na šířku: v záběru za míčkem je panel jen obdélník vpravo dole, míček sedí vedle něj (obraz se posune doleva)
+  const w = innerWidth, low = h <= 500 && w > h * 1.5;
+  let bp = null;
+  if (low) {
+    const dk = $("dock"), dr = box("dock"), aimW = Math.min(400, w * 0.56), xb = Math.max(0.28, (w - 12 - aimW - 64) / w);
+    if (dr && !dk.classList.contains("quiet")) sc.setHudRects([box("bMenu"), box("bCam"), dr].filter(Boolean));
+    bp = { t: pad.t, b: Math.min(0.3, 12 / h * 2), l: 0.04, r: 0.04, xs: (1 - 2 * xb) * w / 2 };
+  }
+  sc.setHudPad(pad, bp);
 }
 addEventListener("resize", () => setTimeout(layout, 30));
 
@@ -230,8 +239,9 @@ function paintDock0() {
   if (G.ph === "play") {
     const p = G.p, n = G.str[p] + 1;
     if (m === p) {
+      d.classList.add("aim");
       d.innerHTML = `<div class="aimrow"><div class="say"><b>${room.local && !room.solo ? esc(nameOf(p)) : "Tvůj tah"} · ${n}. rána</b><span>Táhni zpátky od míčku a pusť.</span></div><div id="pow"><i></i><b>0 %</b></div></div>`;
-    } else d.innerHTML = `<div class="say"><b>Hraje ${esc(nameOf(p))} · ${n}. rána</b><span>${!room.seat ? "Přihlížíš." : G.done[m] ? "Ty už jsi v jamce." : "Potom jsi na řadě ty."}</span></div>`;
+    } else { d.classList.add("aim"); d.innerHTML = `<div class="say"><b>Hraje ${esc(nameOf(p))} · ${n}. rána</b><span>${!room.seat ? "Přihlížíš." : G.done[m] ? "Ty už jsi v jamce." : "Potom jsi na řadě ty."}</span></div>`; }
     return;
   }
   d.innerHTML = "";
@@ -311,7 +321,7 @@ async function animate(st) {
       const bad = ["x", "o"].filter(p => st.g.pend[p] === false);
       toast(bad.length ? "Jedna past se nevešla a propadla." : st.g.moved ? "Pasti jsou venku! Jedna se kousek posunula, aby se nekryly." : "Pasti jsou venku!", st.g.moved ? 2800 : 2000);
       sc.setMode("hole");
-      await sleep(1100);
+      await sleep(room.solo ? 750 : 1100);
     } else if (!room.local && opp !== room.seat) toast(`${nameOf(opp)} už past postavil(a). Je schovaná, dokud nepostavíš svou.`, 3200);
     return;
   }
@@ -364,10 +374,10 @@ async function animate(st) {
     ui.result = { h, par, v, face };
     sc.showCup(items); sound.cup();
     paintHud(); paintDock();
-    await sleep(3000);
+    await sleep(room.solo ? 2200 : 3000);        // sólo: kratší pauza, hráč čeká na dalšího bota
     ui.result = null; paintHud(); paintDock();
     await sleep(250);
-  } else await sleep(350);
+  } else await sleep(room.solo ? 200 : 350);
 }
 // když animace začíná na jiné jamce, než je zobrazená (pozdní načtení), nejdřív ji postav
 function enterStateFor(g) { holeOn = g.hole; sc.setHole(J.hole(g.seed, g.hole)); sc.snapCam(); }
@@ -489,8 +499,8 @@ function botMaybe() {
   clearTimeout(botT);
   if (!room || !room.solo || !G || busy || ui.result) return;
   const rid = room;
-  if (G.ph === "trap" && G.pend.o === null) botT = setTimeout(() => { if (room === rid && G && G.ph === "trap" && G.pend.o === null && !busy) botTrap(); }, 900);
-  else if (G.ph === "play" && G.p === "o" && !G.done.o) botT = setTimeout(() => { if (room === rid && G && G.ph === "play" && G.p === "o" && !busy && !ui.result) botShoot(); }, 950);
+  if (G.ph === "trap" && G.pend.o === null) botT = setTimeout(() => { if (room === rid && G && G.ph === "trap" && G.pend.o === null && !busy) botTrap(); }, 500);
+  else if (G.ph === "play" && G.p === "o" && !G.done.o) botT = setTimeout(() => { if (room === rid && G && G.ph === "play" && G.p === "o" && !busy && !ui.result) botShoot(); }, 550);   // bot střílí ~0,75 s po doběhu úderu hráče (200 ms pauza + 550 ms)
 }
 // Past bota: náhodný druh z nabídky a jedno z prvních šesti platných míst kolem poloviny cesty (deterministicky z místnosti, partie a jamky)
 function botTrap() {

@@ -258,19 +258,39 @@ body.menu #topbar, body.menu #bMenu, body.menu #menu, body.menu #card, body.menu
   .endcard .wait, .endcard .trn-note { font-size: 13px; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
+  /* iPhone na šířku: výšky je málo, proto štítky na jeden řádek (jméno · stav · součet) a nízký panel vpravo dole */
+  #topbar { padding: calc(var(--safeT) + 6px) 10px 0; gap: 6px; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .chip { grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-rows: auto; column-gap: 6px; padding: 4px 10px 4px 6px; border-radius: 14px; max-width: none; }
+  .chip .bi { width: 26px; height: 26px; grid-row: 1; }
+  .chip .nm { grid-row: 1; grid-column: 2; font-size: 13px; }
+  .chip .cur { grid-row: 1; grid-column: 3; font-size: 11px; }
+  .chip .tot { grid-row: 1; grid-column: 4; }
+  .chip .tot b { font-size: 20px; }
+  .chip .tot em { font-size: 10px; margin-top: 1px; }
+  #holePill { padding: 5px 12px; gap: 8px; border-radius: 12px; }
+  #holePill b { font-size: 16px; }
+  #holePill .par { font-size: 12px; }
+  #holePill .mod { font-size: 11px; padding: 1px 6px; }
+  #holePill .trn { font-size: 10px; }
   #dock { width: min(420px, 46vw); left: auto; right: 12px; transform: none; bottom: calc(var(--safeB) + 8px); max-height: calc(100% - 16px); overflow-y: auto; padding: 9px 11px; gap: 7px; }
+  #dock.aim { width: min(400px, 56vw); padding: 7px 10px 7px 12px; border-radius: 16px; }
+  #dock.aim .say b { font-size: 15px; }
+  #dock.aim .say span { font-size: 11.5px; white-space: nowrap; }
+  #dock.aim .aimrow { gap: 8px; }
+  body.camOn #dock.aim { padding-right: 66px; }
+  #dock.aim #pow i { width: 44px; }
+  #dock.aim #pow b { min-width: 34px; font-size: 13px; }
   .cards { grid-template-columns: 1fr 1fr; gap: 6px; }
   .cards .tc:last-child:nth-child(odd) { grid-column: 1 / 3; }
   .tc { padding: 6px 7px; grid-template-columns: 28px 1fr; column-gap: 6px; }
   .tc svg { width: 28px; height: 28px; }
   .tc span { font-size: 10.5px; }
   .btn { min-height: 42px; }
-  #topbar { padding-top: 6px; }
-  #bMenu { right: auto; left: 12px; top: 62px; width: 38px; height: 38px; }
-  #menu, body.cardOpen #card { right: auto; left: 12px; top: 106px; }
+  #bMenu { right: auto; left: 10px; top: calc(var(--safeT) + 54px); width: 38px; height: 38px; }
+  #menu, body.cardOpen #card { right: auto; left: 10px; top: calc(var(--safeT) + 98px); }
   body.cardOpen #card { width: min(380px, 50vw); }
-  #bCam { right: 23px; bottom: max(calc(var(--safeB) + 8px), calc(var(--safeB) + 8px + (var(--dockOH, 56px) - 46px) / 2)); }
-}
+  #bCam { right: 22px; width: 46px; height: 40px; bottom: max(calc(var(--safeB) + 8px), calc(var(--safeB) + 8px + (var(--dockOH, 50px) - 40px) / 2)); }
+  #bCam svg { width: 17px; height: 17px; }
 }
 </style>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>

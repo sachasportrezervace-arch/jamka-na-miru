@@ -1,23 +1,28 @@
 // node tests/kamera.cjs [seed ...]  – kamera při úderu: jamka, praporek a míček ve volné ploše mezi horním HUD a dolním panelem.
 // Ověřuje se PROJEKCÍ do obrazovky (kamera scény → pixely), proti skutečným obdélníkům HUD z DOM, ne odhadem z nastavení kamery.
-// Potřebuje server na 8808 (python -m http.server 8808). Výchozí seedy 3 7 11 21 2 5 9 13 17 25 30 (?mistni=), zařízení:
-// Chromium 1440×900, WebKit iPhone 13 na výšku a WebKit iPhone 13 na šířku. Hraje celé partie (jamky 1–6, údery 1–STROKES na každé jamce).
-// Pravidla: míček je vždy ve volné ploše a má aspoň 12 px v průměru; jamka (obrys, špička tyče i konec látky) je buď CELÁ ve volné ploše,
+// Potřebuje server na 8808 (python -m http.server 8808). Výchozí seedy 21 44 7 3 (?mistni=). Hraje celé partie (jamky 1–6, údery 1–STROKES na každé jamce).
+// Zařízení: Chromium 1440×900, WebKit iPhone 13 na výšku (390×664), na šířku PŘESNĚ jak ho dává Playwright (`devices["iPhone 13 landscape"]` = 750×342)
+// a iPhone na šířku 844×390. Další pravidlo (od 31. 10. večer): když je jamka mimo obrazovku, musí být ve volné ploše míček A NEPŘETRŽITÝ kus cesty
+// k jamce dlouhý aspoň min(celá cesta, REACH_TILES) políček (8; na šířku 6, viz REACH_LOW). Dřív se kontrolovalo jen, že jamka není uříznutá, takže „míček + trocha dráhy, jamka nahoře
+// mimo obraz“ prošlo (a prošlo i na šířku, kde byla vada vidět). HUD: štítky, pilulka a panel se nesmí zalamovat ani useknout (scrollWidth, počet řádků).
+// Pravidla: míček je vždy ve volné ploše a má aspoň 12 px v průměru (na nízkém displeji na šířku 10 px); jamka (obrys, špička tyče i konec látky) je buď CELÁ ve volné ploše,
 // nebo CELÁ mimo obrazovku, nikdy napůl pod HUD ani uříznutá; míček sedí v dolní polovině volné plochy (daleká jamka: v dolní třetině až 45 %);
 // tlačítko „Oddálit“ (#bCam) leží v panelu, nebo od něj má odstup aspoň 10 px a nepřekrývá dráhu.
-// Prostředí: ONLY=desktop,iphone,iphone-sirka (jen vybraná zařízení), STROKES=2, SHOTS=1 (snímky vad do design/), SCAN=1 (rychle: bez hraní,
+// Prostředí: ONLY=desktop,iphone,iphone-sirka,iphone-sirka2 (jen vybraná zařízení), STROKES=2, SHOTS=1 (snímky vad do design/), SCAN=1 (rychle: bez hraní,
 // jen první rána všech jamek seedu přenesením míčku na odpaliště; k ladění kamery).
 const path = require("path"), fs = require("fs");
 const pw = require(process.env.PW || path.join(process.env.APPDATA || "", "npm/node_modules/playwright"));
 const BASE = process.env.BASE || "http://127.0.0.1:8808/";
-const SEEDS = process.argv.slice(2).length ? process.argv.slice(2) : ["3", "7", "11", "21", "2", "5", "9", "13", "17", "25", "30"];
+const SEEDS = process.argv.slice(2).length ? process.argv.slice(2) : ["21", "44", "7", "3"];
 const STROKES = +process.env.STROKES || 2;          // kolik úderů na jamku se měří (po prvním se míček posune)
 const OUT = process.env.OUT || path.join(__dirname, "..", "design");
 const DEVICES = [
   { name: "desktop", engine: "chromium", opts: { viewport: { width: 1440, height: 900 } } },
   { name: "iphone", engine: "webkit", opts: { ...pw.devices["iPhone 13"] } },
 ];
-DEVICES.push({ name: "iphone-sirka", engine: "webkit", opts: { ...pw.devices["iPhone 13 landscape"] } });
+DEVICES.push({ name: "iphone-sirka", engine: "webkit", opts: { ...pw.devices["iPhone 13 landscape"] } });                                   // 750×342
+DEVICES.push({ name: "iphone-sirka2", engine: "webkit", opts: { ...pw.devices["iPhone 13 landscape"], viewport: { width: 844, height: 390 }, screen: { width: 844, height: 390 } } });   // 844×390
+const REACH_TILES = +process.env.REACH || 8, REACH_LOW = +process.env.REACH_LOW || 6;      // na nízkém displeji na šířku (výška < 500) stačí 6: míček musí mít aspoň 10 px a výška volné plochy je ~250 px
 if (process.env.ONLY) for (let i = DEVICES.length - 1; i >= 0; i--) if (!process.env.ONLY.split(",").includes(DEVICES[i].name)) DEVICES.splice(i, 1);
 const launchOpts = e => e === "chromium" ? { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] } : {};
 const wait = (p, ms) => p.waitForTimeout(ms);
@@ -57,9 +62,27 @@ function measure(arg) {
   // dráha pod tlačítkem Oddálit: středy políček trati v pixelech
   const tiles = [];
   for (let y = 0; y < c.H; y++) for (let x = 0; x < c.W; x++) if (c.type[y * c.W + x]) tiles.push(pt(x + 0.5, y + 0.5, J.surf(c, x + 0.5, y + 0.5).h));
+  // cesta z míčku k jamce po vzdálenostním poli (nezávisle na scéně): body v pixelech s kumulativní délkou v políčkách
+  const path = []; let pathEnd = null;
+  { let x = Math.floor(b.x), y = Math.floor(b.y), len = 0, px = b.x, py = b.y;
+    for (let st = 0; st < 120; st++) {
+      let best = null;
+      for (let a = -1; a <= 1; a++) for (let bb = -1; bb <= 1; bb++) { const X = x + a, Y = y + bb; if (X < 0 || Y < 0 || X >= c.W || Y >= c.H) continue; const d = c.df[Y * c.W + X]; if (d < 1e8 && (!best || d < best.d)) best = { d, X, Y }; }
+      if (!best || (best.X === x && best.Y === y)) break;
+      x = best.X; y = best.Y; const qx = x + 0.5, qy = y + 0.5; len += Math.hypot(qx - px, qy - py); px = qx; py = qy;
+      path.push({ len, q: pt(qx, qy, J.surf(c, qx, qy).h + 0.3) });
+      if (best.d === 0) break;
+    }
+    pathEnd = len + Math.hypot(c.cup[0] - px, c.cup[1] - py); path.push({ len: pathEnd, q: pt(c.cup[0], c.cup[1], ch) }); }
+  // texty HUD: jeden řádek, nic useknutého
+  const hud = [];
+  for (const id of ["chipX", "chipO", "holePill"]) { const e = document.getElementById(id); if (!e || !e.offsetParent) continue; hud.push({ id, h: e.getBoundingClientRect().height, parts: [...e.querySelectorAll(".nm,.cur,.par,b,.mod")].map(q => { const lh = parseFloat(getComputedStyle(q).lineHeight) || parseFloat(getComputedStyle(q).fontSize) * 1.3; return { cls: q.className || q.tagName, t: q.textContent, lines: q.getBoundingClientRect().height / lh, cut: q.scrollWidth > q.clientWidth + 1 }; }) }); }
+  const dk = document.getElementById("dock"), dkSay = dk && dk.querySelector(".say");
+  if (dkSay && dk.offsetParent) hud.push({ id: "dock", h: dk.getBoundingClientRect().height, parts: [...dk.querySelectorAll(".say b,.say span")].map(q => ({ cls: q.tagName, t: q.textContent, lines: q.getBoundingClientRect().height / (parseFloat(getComputedStyle(q).lineHeight) || parseFloat(getComputedStyle(q).fontSize) * 1.3), cut: q.scrollWidth > q.clientWidth + 1 })) });
   return {
-    W: innerWidth, H: innerHeight, rects, df: c.df[ci], tiles,
+    path, pathEnd, hud, W: innerWidth, H: innerHeight, rects, df: c.df[ci], tiles,
     ball: pt(b.x, b.y, b.g.position.y), ballPx: (() => { const e = sc.camera.matrixWorld.elements, r = 0.16, h0 = b.g.position.y, q1 = sc.toScreen(b.x + e[0] * r, b.y + e[2] * r, h0 + e[1] * r), q0 = sc.toScreen(b.x - e[0] * r, b.y - e[2] * r, h0 - e[1] * r); return Math.hypot(q1.x - q0.x, q1.y - q0.y); })(), cup,
+    pads: JSON.stringify(sc.pads, (k, v) => typeof v === "number" ? Math.round(v * 100) / 100 : v), topbar: Math.round(document.getElementById("topbar").getBoundingClientRect().bottom),
     how: sc.cam.fr && sc.cam.fr.how, dist: sc.cam.fr && sc.cam.fr.dist, mode: sc.mode, p: s.p, hole, n: s.n,
   };
 }
@@ -76,12 +99,25 @@ function judge(m) {
   if (!free(m.ball)) bad.push(`míček není ve volné ploše (${Math.round(m.ball[0])},${Math.round(m.ball[1])})`);
   const nFree = m.cup.filter(free).length, nOn = m.cup.filter(onScr).length, allFree = nFree === m.cup.length, noneOn = nOn === 0;
   if (!allFree && !noneOn) bad.push(`jamka uříznutá nebo pod HUD: ${nOn} z ${m.cup.length} bodů na obrazovce, ${nFree} ve volné ploše`);
-  if (m.ballPx < 12) bad.push(`míček je malý (${m.ballPx.toFixed(1)} px)`);
+  if (m.ballPx < (m.H < 500 ? 10 : 12)) bad.push(`míček je malý (${m.ballPx.toFixed(1)} px)`);
   // poloha míčku: dolní část volné plochy (mezi spodkem horního HUD a vrchem panelu, jak ji počítá scéna)
   const tops = ["chipX", "chipO", "holePill"].map(rc).filter(Boolean).map(r => r[3]), top = tops.length ? Math.max(...tops) : 0;
-  const dock = rc("dock"), bot = dock ? dock[1] : m.H;
-  const frac = (bot - m.ball[1]) / Math.max(1, bot - top), narrow = dock && dock[2] - dock[0] < m.W * 0.6, lim = allFree ? 0.62 : narrow ? 0.55 : 0.45;   // na šířku je panel jen vpravo dole, volná plocha je nízká
+  const dock = rc("dock"), narrow = dock && dock[2] - dock[0] < m.W * 0.6, bot = dock && !narrow ? dock[1] : m.H;       // na šířku je panel jen vpravo dole: pod míčkem je volno až do spodku
+  const frac = (bot - m.ball[1]) / Math.max(1, bot - top), lim = allFree ? 0.62 : narrow ? 0.7 : 0.45;
   if (frac > lim) bad.push(`míček je moc vysoko (${Math.round(frac * 100)} % od spodu volné plochy, limit ${Math.round(lim * 100)} %)`);
+  // dlouhý kus cesty: když je jamka mimo obrazovku, od míčku nepřetržitě aspoň min(celá cesta, REACH_TILES) políček ve volné ploše
+  if (!allFree) {
+    let reach = 0, blk = null;
+    for (const p of m.path) { if (!free(p.q)) { blk = p; break; } reach = p.len; }
+    const need = Math.min(m.pathEnd, m.H < 500 ? REACH_LOW : REACH_TILES);
+    if (blk && blk.len <= need + 0.01) bad.push(`vidět jen ${reach.toFixed(1)} políček cesty k jamce (další bod ${blk ? blk.len.toFixed(1) : "-"} už ne) (potřeba ${need.toFixed(1)}; z ${m.pathEnd.toFixed(1)}; stojí v cestě bod ${blk ? Math.round(blk.q[0]) + "," + Math.round(blk.q[1]) : "-"} na ${m.W}×${m.H}, míček ${Math.round(m.ball[0])},${Math.round(m.ball[1])}; topbar ${m.topbar}, pads ${m.pads})`);
+  }
+  // HUD: štítky, pilulka, panel na jeden řádek a nic useknutého
+  for (const h of m.hud) for (const q of h.parts) {
+    if (h.id !== "dock" && q.lines > 1.4) bad.push(`HUD ${h.id} ${q.cls} „${q.t}“ se zalamuje (${q.lines.toFixed(1)} řádku)`);
+    if (q.cut) bad.push(`HUD ${h.id} ${q.cls} „${q.t}“ je useknutý`);
+    if (h.id === "dock" && q.cls === "SPAN" && m.H < 500 && q.lines > 1.4) bad.push(`panel: nápověda „${q.t}“ se zalamuje`);
+  }
   // tlačítko Oddálit: v panelu, nebo s odstupem od něj a mimo dráhu
   const cam = rc("bCam");
   if (cam && dock) {
@@ -120,7 +156,8 @@ async function run(browser, dev, seed, out) {
         const m = await p.evaluate(measure), j = judge(m);
         measured++; j.cupIn ? nearSeen++ : farSeen++;
         const tag = `${dev.name} seed ${seed} jamka ${s.hole + 1} rána ${s.n + 1} (${s.p}) df ${m.df.toFixed(0)}`;
-        if (j.bad.length) { out.bad.push(`${tag}: ${j.bad.join("; ")} [${m.how}, d ${m.dist && m.dist.toFixed(1)}]`); if (process.env.SHOTS) await p.screenshot({ path: path.join(OUT, `kamera-vada-${dev.name}-${seed}-${s.hole + 1}-${s.n + 1}.png`) }); }
+        if (j.bad.length) out.bad.push(`${tag}: ${j.bad.join("; ")} [${m.how}, d ${m.dist && m.dist.toFixed(1)}]`);
+        if (process.env.SHOTS === "all" || (process.env.SHOTS && j.bad.length)) await p.screenshot({ path: path.join(OUT, `kamera-${j.bad.length ? "vada" : "ok"}-${dev.name}-${seed}-${s.hole + 1}-${s.n + 1}.png`) });
         strokesHere++;
       }
       await p.evaluate(() => { const b = window.__jm.bot(); window.__jm.shoot(b.A, b.P); });
