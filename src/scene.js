@@ -660,15 +660,22 @@ export function createScene(canvas) {
         { cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax, name: "cela2" },                           // nízký displej: raději drobnější míček než jamka těsně za okrajem
         { cuts: [7, 6], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi2" },
         { cuts: [Infinity], ybs: [0.5, 0.7], dLim: dMax, name: "vys" }]
-      : [{ cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax * 0.84, name: "cela" },      // celá cesta + jamka, jen když při tom nejsou objekty drobné
-        { cuts: [20, 17, 14, 11, 8, 6], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi" },                     // jamka celá mimo obrazovku
-        { cuts: [Infinity], ybs: [0.5, 0.7], dLim: dMax, name: "vys" }];
+      : aspect >= 1
+        ? [{ cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax * 0.84, name: "cela" },      // celá cesta + jamka, jen když při tom nejsou objekty drobné
+          { cuts: [20, 17, 14, 11, 8, 6], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi" },                   // jamka celá mimo obrazovku
+          { cuts: [Infinity], ybs: [0.5, 0.7], dLim: dMax, name: "vys" }]
+        : [{ cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax * 0.84, name: "cela" },      // na výšku: celá cesta + jamka
+          { cuts: [20, 17, 14, 11, 9.5, 8.5, 8], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi" },            // jamka celá mimo obrazovku, vidět aspoň 8 políček cesty
+          { cuts: [Infinity], ybs: [0.3, 0.2, 0.12], dLim: dMax, name: "cela2" },                           // raději drobnější míček než jen kousek cesty
+          { cuts: [Infinity, 20, 17, 14, 11, 9.5, 8.5, 8], ybs: [0.3, 0.12], dLim: dMax, pit: [0.92, 0.8], name: "plosi" },   // dlouhá cesta se při dolním panelu na výšku jinak nevejde: plošší pohled vloží do výšky víc políček
+          { cuts: [7, 6], ybs: [0.3, 0.12], dLim: dMax, name: "kratsi2" },
+          { cuts: [Infinity], ybs: [0.5, 0.7], dLim: dMax, name: "vys" }];
     let best = null;
     for (const st of stages) {
       for (const cut of st.cuts) {
         const { P, cupIn } = pathP(cut);
         if (cut === Infinity && !cupIn) continue;
-        for (const pt of pitches) { pitch = pt; for (const yw of yaws) { for (const ybf of st.ybs) { best = solve(P, yw, cupIn, ybf, st.dLim); if (best) { best.how = `${st.name} cut ${cut} pitch ${pt} yaw ${yaws.indexOf(yw)} yb ${ybf}`; best.pitch = pt; break; } } if (best) break; } if (best) break; }
+        for (const pt of st.pit || pitches) { pitch = pt; for (const yw of yaws) { for (const ybf of st.ybs) { best = solve(P, yw, cupIn, ybf, st.dLim); if (best) { best.how = `${st.name} cut ${cut} pitch ${pt} yaw ${yaws.indexOf(yw)} yb ${ybf}`; best.pitch = pt; break; } } if (best) break; } if (best) break; }
         if (best) break;
       }
       if (best) break;
