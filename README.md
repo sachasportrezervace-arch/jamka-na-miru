@@ -1,5 +1,7 @@
 # Jamka na míru
 
+**Hrát:** https://sachasportrezervace-arch.github.io/jamka-na-miru/
+
 Minigolf pro dva na jednom odkazu. 6 jamek, vyhrává, kdo má míň ran. Před každou jamkou postavíš soupeři past (mlýnek, louže,
 pérovačka, krtinec) a on tobě. Tvoje past tě nechá být. Každá partie má jiné jamky (generuje se ze seedu), takže se tři partie za sebou neopakují.
 

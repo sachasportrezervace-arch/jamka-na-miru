@@ -118,3 +118,10 @@ Společná pravidla: `../HRY-PREVZETI-2026-10-31.md`. Port **8808**. Commity bez
 ### Otevřená rozhodnutí (předpoklady)
 - Pasti se staví naráz a naslepo (oba hned, bez čekání na sebe), odhalí se, až stojí obě. Komeback: kdo ztrácí ≥2 rány, vybírá ze 3 pastí místo ze 2.
 - Strop jamky: par+3 ran, pak se zapíše par+4. Čest odpalu: kdo jamku zahrál líp, začíná další.
+
+## 1. 11. 2026 – nasazení
+- Repo `sachasportrezervace-arch/jamka-na-miru` (veřejné), `master` přejmenována na `main`, push, Pages z `main` / root, build `built`.
+- Živá URL: https://sachasportrezervace-arch.github.io/jamka-na-miru/
+- Příkazy (exit 0): `node tests/duel.cjs` (lokálně, 36/36), `node tests/perf.cjs`, `curl` ×4 (200), `node tests/duel.cjs <živá URL>` (36/36), `node tests/solo.cjs <živá URL>` (34 PASS).
+- Server 8808 (`python -m http.server`) zastaven podle PID. Do `.gitignore` přidáno node_modules, logy, .env*.
+- Zbývá: ověření na skutečném iPhonu (NEOVĚŘENO).
