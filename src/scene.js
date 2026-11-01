@@ -180,11 +180,12 @@ export function createScene(canvas) {
     for (const s of c.segs) {
       const dx = s[2] - s[0], dz = s[3] - s[1], l = Math.sqrt(dx * dx + dz * dz), nx = dz / l, nz = -dx / l;
       if (s[6]) {                                   // zábradlí mostu: nízká lať na dvou kolících, mírně nad vodou
-        const RH = 0.15, RT = 0.05, h0 = s[4] + 0.02;
+        // lať v barvě mantinelů (světlá horní hrana, tmavý bok), ať se od oranžových prken odliší
+        const RH = 0.17, RT = 0.07, h0 = s[4] + 0.02;
         const P = (f, o, y) => [s[0] + dx * f + nx * o, h0 + y, s[1] + dz * f + nz * o];
-        m.quad(P(0, -RT, RH), P(0, RT, RH), P(1, RT, RH), P(1, -RT, RH), th.plank);
-        m.quad(P(0, -RT, RH - 0.06), P(0, -RT, RH), P(1, -RT, RH), P(1, -RT, RH - 0.06), th.plank2);
-        m.quad(P(1, RT, RH - 0.06), P(1, RT, RH), P(0, RT, RH), P(0, RT, RH - 0.06), th.plank2);
+        m.quad(P(0, -RT, RH), P(0, RT, RH), P(1, RT, RH), P(1, -RT, RH), th.wall);
+        m.quad(P(0, -RT, RH - 0.08), P(0, -RT, RH), P(1, -RT, RH), P(1, -RT, RH - 0.08), th.wallSide);
+        m.quad(P(1, RT, RH - 0.08), P(1, RT, RH), P(0, RT, RH), P(0, RT, RH - 0.08), th.wallSide);
         for (const f of [0.12, 0.88]) {
           const q = 0.035, cx = s[0] + dx * f, cz = s[1] + dz * f;
           for (const [ax, az, bx, bz] of [[-q, -q, q, -q], [q, -q, q, q], [q, q, -q, q], [-q, q, -q, -q]])
@@ -382,9 +383,12 @@ export function createScene(canvas) {
       g.add(cloud); g.userData.cloud = cloud;
       const streaks = [];
       for (let i = 0; i < 6; i++) {
-        const sm = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.045), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }));
+        const sm = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.07), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }));
         sm.rotation.x = -Math.PI / 2; sm.userData.z = (i % 3 - 1) * J.FUK_W * 0.6; sm.userData.ph = i / 6; sm.position.set(0, 0.03, sm.userData.z); g.add(sm); streaks.push(sm);
       }
+      // šipka směru na trávě těsně před hubicí: směr je vidět i tam, kde proud hned naráží do zdi
+      const chev = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape([new THREE.Vector2(0, 0.3), new THREE.Vector2(0.36, 0), new THREE.Vector2(0, -0.3), new THREE.Vector2(0.11, 0)])), new THREE.MeshBasicMaterial({ color: owner, transparent: true, opacity: 0.95, depthWrite: false }));
+      chev.rotation.x = -Math.PI / 2; chev.position.set(J.FUK_B + 0.2, 0.025, 0); g.add(chev);
       g.userData.streaks = streaks; g.userData.reach = J.fukReach(c, t);
       g.rotation.y = -t.a * Math.PI * 2 / J.ROT;
     } else if (t.k === "vysavac") {
@@ -401,7 +405,8 @@ export function createScene(canvas) {
       swirl.rotation.x = -Math.PI / 2; swirl.position.y = 0.015; g.add(swirl); g.userData.swirl = swirl;
     }
     g.position.set(geo.x, h, geo.y);
-    if (ghostMode) g.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.55; o.material.depthWrite = false; } });
+    // duch při stavění: průsvitný, jen fukar plný (jinak se ztratí obličej a směr, který hráč natáčí)
+    if (ghostMode && t.k !== "fukar") g.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.55; o.material.depthWrite = false; } });
     g.userData.t = t; g.userData.ring = ring;
     return g;
   }
@@ -498,12 +503,12 @@ export function createScene(canvas) {
     if (s > 0.5 && o.vis) puff(o.x, o.y, s);
   }
   function puff(x, y, s) {
-    const z = J.surf(c, x, y).h, n = Math.round(4 + s * 4);
+    const z = J.surf(c, x, y).h, n = Math.round(6 + s * 6);
     for (let i = 0; i < n; i++) {
-      const m = new THREE.Mesh(partGeo.chip, new THREE.MeshBasicMaterial({ color: th.puff || "#FFFFFF", transparent: true, opacity: 0.8 }));
+      const m = new THREE.Mesh(partGeo.chip, new THREE.MeshBasicMaterial({ color: "#FFFFFF", transparent: true, opacity: 0.95 }));
       const a = i / n * Math.PI * 2 + Math.random() * 0.5;
-      m.position.set(x, z + 0.05, y); m.scale.setScalar(0.7 + Math.random() * 0.5);
-      m.userData.v = new THREE.Vector3(Math.cos(a) * 0.018 * s, 0.018 + Math.random() * 0.012, Math.sin(a) * 0.018 * s);
+      m.position.set(x, z + 0.05, y); m.scale.setScalar(1.4 + Math.random() * 0.9);
+      m.userData.v = new THREE.Vector3(Math.cos(a) * 0.026 * s, 0.02 + Math.random() * 0.014, Math.sin(a) * 0.026 * s);
       m.userData.life = 0.7; fx.add(m); parts.push(m);
     }
   }

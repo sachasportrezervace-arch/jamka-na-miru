@@ -404,6 +404,8 @@ function pickTrap(k, quiet) {
   const keep = ui.ghost && ui.ghost.ok ? ui.ghost : null;
   let spot = keep ? { x: keep.x / 20, y: keep.y / 20 } : null;
   if (!spot || !J.trapValid(c, { k, x: keep.x, y: keep.y, a: 0, by: me() })) spot = cand.find(q => J.trapValid(c, { k, x: Math.round(q.x * 20), y: Math.round(q.y * 20), a: 0 })) || cand[0];
+  // fukar napoprvé míří tam, kam fouká nejdál (ne do zdi), ať je proud vidět hned
+  if (k === "fukar") { let best = -1; for (let a = 0; a < J.ROT; a += 2) { const r = J.fukReach(c, { k, x: Math.round(spot.x * 20), y: Math.round(spot.y * 20), a }); if (r > best + 1e-9) { best = r; ui.rot = a; } } }
   moveGhost(spot.x, spot.y);
   if (G && G.ph === "trap") paintDock();      // zvýrazní vybranou kartu a tlačítka
   if (!quiet) sound.lip();

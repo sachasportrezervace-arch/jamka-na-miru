@@ -3,7 +3,7 @@
 **Hrát:** https://sachasportrezervace-arch.github.io/jamka-na-miru/
 
 Minigolf pro dva na jednom odkazu. 6 jamek, vyhrává, kdo má míň ran. Před každou jamkou postavíš soupeři past (mlýnek, louže,
-pérovačka, krtinec) a on tobě. Tvoje past tě nechá být. Každá partie má jiné jamky (generuje se ze seedu), takže se tři partie za sebou neopakují.
+pérovačka, krtinec, fukar, vysavač) a on tobě. Tvoje past tě nechá být. Každá partie má jiné jamky (generuje se ze seedu), takže se tři partie za sebou neopakují.
 
 ## Jak hrát
 
@@ -49,6 +49,7 @@ Playwright se bere z `%APPDATA%/npm/node_modules/playwright` (jinak proměnná `
 | `node tests/solo.cjs` | sólo režim: tlačítko „Zkusit sám“ → `#solo`, celá partie proti botovi v Chromiu i WebKitu iPhone 13, „Trénink“ v liště, žádná chyba v konzoli, žádný síťový požadavek mimo náš server (nic na mantledb), „Znovu“, „Vyzvat soupeře“ |
 | `node tests/herna.cjs` | napojení na Hernu: hra v iframe `tests/herna-host.html` (maketa Herny) ve 2 prohlížečích přes živý mantledb, zprávy protokolu, jména a sedadla, celá partie, `vysledek` jednou na okno, `jina-hra`, odveta, bez `#herna` jako dřív (~4 min) |
 | `node tests/pamet.cjs [seed]` | únik paměti scény (`renderer.info`) přes celou partii, výchozí WebKit iPhone na šířku |
+| `DEV=desktop,iphone,iphoneL node tests/rendery-kolo.cjs` | snímky do `design/kolo-1-11/`: stavění fukaru a vysavače, pasti venku, míření s náhledem dráhy, 90 ms po úderu, po doběhnutí (seed 32, jamka s mostem) |
 | `SEED=7 node tests/rendery.cjs` | rendery do `design/a-s<seed>-<zařízení>-<záběr>.png` (past, úder, výsledek, konec; desktop + iPhone, ~4 minuty; `KRATKE=1` bez konce; `UVOD=1` přidá `a-uvod-*.png`, úvod s „Zkusit sám“) |
 
 Snímky z `duel.cjs` jsou v `tests/shots/`. Háčky pro testy: `window.__jm` (`state`, `viewInfo`, `autoTrap`, `bot`, `shoot`, `scene`).
