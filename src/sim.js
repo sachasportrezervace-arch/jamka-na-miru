@@ -53,9 +53,14 @@
     louze: { name: "Louže", desc: "Míček v ní skoro zastaví.", rot: false, clear: 0.8, foot: 0.8 },
     stena: { name: "Pérovačka", desc: "Stěna, která odrazí víc, než přiletělo.", rot: true, clear: 0.3, foot: 0.7 },
     kopec: { name: "Krtinec", desc: "Kopeček, ze kterého míček sjede do strany.", rot: false, clear: 0.9, foot: 0.9 },
+    fukar: { name: "Fukar", desc: "Fouká do projíždějícího míčku. Natoč ho k vodě.", rot: true, clear: 0.34, foot: 0.9 },
+    vysavac: { name: "Vysavač", desc: "Robot vysaje pomalý míček a nechá ho na sobě trčet.", rot: false, clear: 0.45, foot: 0.85 },
   };
   const TRAP_KINDS = Object.keys(TRAPS);
   const LOUZE_R = 0.8, KOPEC_R = 0.9, KOPEC_H = 0.3, MLYN_R = 0.95, MLYN_W = 0.03, STENA_H = 0.7;
+  // fukar: tělo (pevný kruh FUK_B) a před ním proud vzduchu FUK_L dlouhý, FUK_W polovina šířky; fouká jen do jedoucího míčku
+  // vysavač: táhne míček do středu do vzdálenosti VYS_R, ve středu (VYS_IN) ho skoro zastaví
+  const FUK_B = 0.26, FUK_L = 2.2, FUK_W = 0.5, FUK_F = 0.0042, VYS_R = 0.85, VYS_IN = 0.3, VYS_F = 0.0045;
 
   // ---------- plán hry: 6 jamek, každá s rysy, tématem a modifikátorem ----------
   function plan(seed) {
@@ -68,6 +73,8 @@
     const modKeys = ["led", "vitr", "velka", "guma", "mala"];
     const mods = ["klid"];
     for (let i = 1; i < 6; i++) { let m; do m = r() < 0.25 ? "klid" : modKeys[Math.floor(r() * modKeys.length)]; while (m === mods[i - 1]); mods.push(m); }
+    // náledí na úzkém mostě je loterie (lidský hráč tam dělal dvojnásobek paru): most dostane velkou jamku nebo klid
+    for (let i = 1; i < 6; i++) if (mods[i] === "led" && sets[i].includes("most")) mods[i] = mods[i - 1] === "velka" || mods[i + 1] === "velka" ? "klid" : "velka";
     return sets.map((fs, i) => {
       const legs = i === 0 ? 2 + (r() < 0.5 ? 1 : 0) : Math.min(4, Math.max(3, fs.length + ri(r, 1, 2)));   // první jamka: 2 nebo 3 nohy (lehčí rozehrání, par 2–3), tvar se přesto liší od prvního seedu
       const feats = new Array(legs).fill("");
@@ -216,6 +223,16 @@
       if (cu === 1) add(x, y, x + 1, y + 1); else if (cu === 4) add(x + 1, y + 1, x, y);
       else if (cu === 2) add(x, y + 1, x + 1, y); else if (cu === 3) add(x + 1, y, x, y + 1);
     }
+    // zábradlí mostu: hrana prkna, za kterou je voda (7. prvek = 1, kreslí se jako nízká lať, ne mantinel)
+    // do vody se tak spadne jen minutím nájezdu na most, ne z prkna samotného
+    const isW = (x, y) => occ(c, x, y) && type[y * W + x] === WATER;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (type[y * W + x] !== BRIDGE) continue;
+      if (isW(x, y - 1)) { add(x, y, x + 1, y); segs[segs.length - 1].push(1); }
+      if (isW(x + 1, y)) { add(x + 1, y, x + 1, y + 1); segs[segs.length - 1].push(1); }
+      if (isW(x, y + 1)) { add(x + 1, y + 1, x, y + 1); segs[segs.length - 1].push(1); }
+      if (isW(x - 1, y)) { add(x, y + 1, x, y); segs[segs.length - 1].push(1); }
+    }
     c.segs = segs;
     c.near = [];
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -284,6 +301,8 @@
       b.hp = hp; b.mod = hp.mod; b.wind = hp.wind; b.th = hp.th; b.attempt = at;
       const strokes = botPar(b);
       if (strokes == null) continue;
+      // jamka na jednu ránu (par 2) je zpestření, ne pravidlo: nikdy ve finále a nejvýš jedna za partii
+      if (strokes === 1 && at < 50 && (hi === 5 || [...Array(hi).keys()].some(j => hole(seed, j).par === 2))) continue;
       b.bot = strokes; b.par = Math.max(2, Math.min(5, strokes + 1));
       c = b;
     }
@@ -364,13 +383,21 @@
     for (const [px, py] of pts) if (where(c, px, py) !== FLOOR) return false;
     return true;
   }
+  // dosah proudu fukaru: po ose od hubice až k první zdi (přes vodu fouká dál); krok 1/20 políčka
+  function fukReach(c, t) {
+    const g = trapGeom(t);
+    let k = 0;
+    while (k < Math.round(FUK_L * 20)) { const s = FUK_B + (k + 1) / 20; if (where(c, g.x + g.ux * s, g.y + g.uy * s) === VOID) break; k++; }
+    return k / 20;
+  }
   // výška krtince v bodě (pro kreslení míčku i trávy)
   function trapHeight(traps, x, y, skip) {
     let h = 0;
     for (const t of traps) {
-      if (t.k !== "kopec" || t.by === skip) continue;
-      const dx = x - t.x / 20, dy = y - t.y / 20, q = (dx * dx + dy * dy) / (KOPEC_R * KOPEC_R);
-      if (q < 1) h += KOPEC_H * (1 - q) * (1 - q);
+      if (t.by === skip) continue;
+      const dx = x - t.x / 20, dy = y - t.y / 20;
+      if (t.k === "kopec") { const q = (dx * dx + dy * dy) / (KOPEC_R * KOPEC_R); if (q < 1) h += KOPEC_H * (1 - q) * (1 - q); }
+      else if (t.k === "vysavac") { const q = (dx * dx + dy * dy) / (0.42 * 0.42); if (q < 1) h += 0.1 * (1 - q * q); }   // míček vyjede na robota
     }
     return h;
   }
@@ -401,7 +428,7 @@
     const ox = me.x, oy = me.y;
     const ang = shot.A * TAU / ANG, sp = VMAX * Math.max(40, Math.min(1000, shot.P)) / 1000;
     me.vx = dcos(ang) * sp; me.vy = dsin(ang) * sp; me.rest = false;
-    const traps = st.traps.map(t => ({ ...t, g: trapGeom(t) }));
+    const traps = st.traps.map(t => { const g = trapGeom(t); if (t.k === "fukar") g.reach = fukReach(c, t); return { ...t, g }; });
     const ev = [], hitTrap = new Set(), lastHit = { x: -99, o: -99 };
     let pen = 0, t = 0;
     const evt = (e, b, extra) => ev.push({ t, e, b: b.k, ...extra });
@@ -436,7 +463,8 @@
       if (why === "voda" && b === me) pen++;
     };
 
-    for (; t < TICK_LIMIT; t++) {
+    const lim = st.lim || TICK_LIMIT;                     // náhled míření počítá jen začátek dráhy
+    for (; t < lim; t++) {
       let moving = false;
       for (const k of ["x", "o"]) {
         const b = B[k];
@@ -451,6 +479,18 @@
             fx += dx * f; fy += dy * f; if (q < 0.7) mark(b, tr);
           } else if (tr.k === "louze" && d2 < LOUZE_R * LOUZE_R) { extra += 0.016; mark(b, tr); }
           else if (tr.k === "mlyn" && d2 < (MLYN_R + R) * (MLYN_R + R) && d2 > 1e-6) { const d = Math.sqrt(d2); fx += dx / d * 0.0035; fy += dy / d * 0.0035; }
+          else if (tr.k === "fukar" && !b.rest) {
+            // proud před hubicí; síla slábne s dálkou a u pomalého míčku (ten se u zdi nesmí třást donekonečna)
+            const al = dx * tr.g.ux + dy * tr.g.uy, q = dx * tr.g.uy - dy * tr.g.ux;
+            if (al > FUK_B && al < FUK_B + tr.g.reach && q > -FUK_W && q < FUK_W) {
+              const v = Math.sqrt(b.vx * b.vx + b.vy * b.vy), f = FUK_F * (1 - (al - FUK_B) / FUK_L) * (v < 0.06 ? v / 0.06 : 1);
+              fx += tr.g.ux * f; fy += tr.g.uy * f; if (v > 0.02) mark(b, tr);
+            }
+          } else if (tr.k === "vysavac" && d2 < VYS_R * VYS_R && d2 > 1e-6) {
+            const d = Math.sqrt(d2), f = VYS_F * (1 - d / VYS_R);
+            fx -= dx / d * f; fy -= dy / d * f;
+            if (d < VYS_IN) { extra += 0.018; mark(b, tr); }
+          }
         }
         let s = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
         const f2 = fx * fx + fy * fy, lim = dec + extra;
@@ -471,6 +511,7 @@
           for (const tr of traps) {
             if (tr.by === b.k) continue;
             if (tr.k === "stena") { if (hitSeg(b, tr.g.seg, 1.35, "pero", R + 0.06)) mark(b, tr); }
+            else if (tr.k === "fukar") hitCircle(b, tr.g.x, tr.g.y, FUK_B, 0.6, "zed");
             else if (tr.k === "mlyn") {
               const dx = b.x - tr.g.x, dy = b.y - tr.g.y;
               if (dx * dx + dy * dy > (MLYN_R + R + 0.1) ** 2) continue;
@@ -639,7 +680,7 @@
   }
 
   const API = { PI, TAU, dsin, dcos, rng, hashStr, R, CUP_R, VMAX, ANG, ROT, VOID, FLOOR, WATER, BRIDGE, THEMES, THEME_NAMES, MODS, TRAPS, TRAP_KINDS,
-    LOUZE_R, KOPEC_R, KOPEC_H, MLYN_R, STENA_H, plan, build, hole, botShot, botHuman, botPar, surf, where, trapGeom, trapValid, trapHeight, bladeAngle, shoot, segDist,
+    LOUZE_R, KOPEC_R, KOPEC_H, MLYN_R, STENA_H, FUK_B, FUK_L, FUK_W, VYS_R, VYS_IN, plan, build, hole, fukReach, botShot, botHuman, botPar, surf, where, trapGeom, trapValid, trapHeight, bladeAngle, shoot, segDist,
     other, total, newGame, courseOf, trailing, offer, placeTrap, overlaps, playShot, replay, titles, capOf };
   if (typeof module !== "undefined" && module.exports) module.exports = API; else root.JM = API;
 })(typeof self !== "undefined" ? self : this);

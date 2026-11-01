@@ -34,16 +34,22 @@ const sound = (() => {
     g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
     o.connect(g).connect(a.destination); o.start(t); o.stop(t + d + 0.02);
   };
-  const noise = (d, v = 0.25, f = 900) => {
+  // šum s filtrem; f1 = kam se filtr během zvuku posune (svist fukaru), shape = obálka (náběh místo jen doznění)
+  const noise = (d, v = 0.25, f = 900, f1 = 0, swell = false) => {
     const a = on && ctx(); if (!a) return;
     const b = a.createBuffer(1, Math.floor(a.sampleRate * d), a.sampleRate), ch = b.getChannelData(0);
-    for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / ch.length);
-    const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
-    fl.type = "lowpass"; fl.frequency.value = f; g.gain.value = v; s.buffer = b; s.connect(fl).connect(g).connect(a.destination); s.start();
+    for (let i = 0; i < ch.length; i++) { const q = i / ch.length; ch[i] = (Math.random() * 2 - 1) * (swell ? Math.sin(q * Math.PI) : 1 - q); }
+    const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain(), t = a.currentTime;
+    fl.type = "lowpass"; fl.frequency.setValueAtTime(f, t); if (f1) fl.frequency.exponentialRampToValueAtTime(f1, t + d);
+    g.gain.value = v; s.buffer = b; s.connect(fl).connect(g).connect(a.destination); s.start();
   };
   return {
     get on() { return on; }, toggle() { on = !on; Net.store.set("jm-sound", on ? "1" : "0"); return on; },
-    putt: p => tone(380 + p * 200, 0.08, "triangle", 0.25 + p * 0.15, 0.6),
+    // úder: cvak hlavy hole (krátký šum) + dřevěné „tok“, silná rána je hlubší a plnější
+    putt: p => { noise(0.035, 0.35 + p * 0.25, 2600 + p * 1800); tone(320 - p * 90, 0.11 + p * 0.06, "triangle", 0.3 + p * 0.15, 0.55); if (p > 0.75) tone(95, 0.16, "sine", 0.22, 0.6); },
+    tick: p => tone(700 + p * 700, 0.025, "square", 0.03),
+    blow: () => noise(0.6, 0.3, 500, 2400, true),
+    suck: () => { tone(110, 0.45, "sawtooth", 0.07, 2.2); noise(0.45, 0.12, 300, 1200, true); },
     wall: v => tone(220 + Math.min(1, v / 200) * 160, 0.05, "square", 0.05 + Math.min(0.1, v / 2500)),
     spring: () => tone(300, 0.25, "sine", 0.22, 3.2),
     mill: () => tone(160, 0.09, "sawtooth", 0.08, 0.7),
@@ -144,6 +150,8 @@ const TRAP_ICON = {
   louze: '<svg viewBox="0 0 48 48"><path d="M7 27c0-8 9-12 17-12s18 3 18 11-9 12-18 12S7 35 7 27z" fill="#6FA6C4"/><path d="M15 25q4-4 9-3" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/><ellipse cx="30" cy="24" rx="6" ry="4" fill="#FFD23F"/><circle cx="34" cy="19" r="3.2" fill="#FFD23F"/><path d="M37 19l3 .8-3 1z" fill="#FF8A3D"/></svg>',
   stena: '<svg viewBox="0 0 48 48"><g transform="rotate(-18 24 24)"><rect x="6" y="19" width="36" height="10" rx="2" fill="#fff" stroke="#1E1B2E" stroke-width="2"/><rect x="12" y="19" width="6" height="10" fill="#F25F5C"/><rect x="24" y="19" width="6" height="10" fill="#F25F5C"/><rect x="36" y="19" width="5" height="10" fill="#F25F5C"/></g><path d="M8 40q3-3 6 0t6 0" stroke="#9AA4B2" stroke-width="2.4" fill="none"/></svg>',
   kopec: '<svg viewBox="0 0 48 48"><path d="M4 38q20-32 40 0z" fill="#8C6142"/><circle cx="24" cy="19" r="7" fill="#3B3346"/><circle cx="21.3" cy="17.5" r="1.6" fill="#fff"/><circle cx="26.7" cy="17.5" r="1.6" fill="#fff"/><circle cx="24" cy="21.5" r="2" fill="#FF8FA3"/></svg>',
+  fukar: '<svg viewBox="0 0 48 48"><path d="M27 15h15M30 24h14M27 33h15" stroke="#9AA4B2" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="24" r="9" fill="#fff" stroke="#1E1B2E" stroke-width="2"/><circle cx="8" cy="15" r="6" fill="#fff" stroke="#1E1B2E" stroke-width="2"/><circle cx="17" cy="20" r="8.5" fill="#fff"/><circle cx="12" cy="24" r="7.5" fill="#fff"/><circle cx="16" cy="20" r="1.6" fill="#1E1B2E"/><ellipse cx="14" cy="26" rx="2" ry="1.4" fill="#FF8FA3"/><circle cx="22" cy="24" r="2.4" fill="none" stroke="#1E1B2E" stroke-width="2"/></svg>',
+  vysavac: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="21" fill="none" stroke="#9AA4B2" stroke-width="2" stroke-dasharray="4 4"/><circle cx="24" cy="25" r="13" fill="#4A4458"/><path d="M13.5 18a13 13 0 0 1 21 0" stroke="#F25F5C" stroke-width="3" fill="none"/><circle cx="24" cy="25" r="8" fill="#6E6784"/><circle cx="20" cy="18.5" r="1.8" fill="#9FF0FF"/><circle cx="28" cy="18.5" r="1.8" fill="#9FF0FF"/><circle cx="24" cy="25" r="4" fill="#fff" stroke="#1E1B2E" stroke-width="1.5"/></svg>',
 };
 
 // ---------- HUD: všechna čísla a texty z jednoho stavu G ----------
@@ -338,7 +346,7 @@ async function animate(st) {
   for (const k of ["x", "o"]) sc.setBall(k, b0[k], b0[k].on && !b0[k].in);
   sc.turnRing(null); sc.setAim(by, 0, 0);
   if (sc.mode === "ball" || ui.camAuto) { sc.setMode("ball"); sc.frameBall(by); }
-  sound.putt(st.a.P / 1000);
+  sound.putt(st.a.P / 1000); sc.kick(by, 0.35 + st.a.P / 1000 * 0.65);
   sc.setFace(by, st.a.P > 700 ? "fast" : "aim", 700);
   const evs = res.ev.slice();
   let ei = 0;
@@ -346,10 +354,12 @@ async function animate(st) {
   await new Promise(done => sc.playFrames(fr, g0.n, tick => {
     while (ei < evs.length && evs[ei].t + 1 <= tick) {
       const e = evs[ei++], bx = fr[e.b][(e.t + 1) * 2], by2 = fr[e.b][(e.t + 1) * 2 + 1];
-      if (e.e === "zed") sound.wall(e.v || 60);
-      else if (e.e === "pero") { sound.spring(); sc.setFace(e.b, "fast", 700); }
-      else if (e.e === "mlyn") { sound.mill(); sc.setFace(e.b, "dizzy", 1300); }
-      else if (e.e === "past") { sc.setFace(e.b, e.k === "louze" ? "worry" : "dizzy", 1300); if (e.by) sc.setFace(e.by, "smug", 1800); ui.mood[e.b] = "grr"; if (e.by) ui.mood[e.by] = "smug"; paintHud(); }
+      if (e.e === "zed") { sound.wall(e.v || 60); sc.kick(e.b, Math.min(0.9, (e.v || 60) / 160)); }
+      else if (e.e === "pero") { sound.spring(); sc.kick(e.b, 1); sc.setFace(e.b, "fast", 700); }
+      else if (e.e === "mlyn") { sound.mill(); sc.kick(e.b, 0.7); sc.setFace(e.b, "dizzy", 1300); }
+      else if (e.e === "past") {
+        if (e.k === "fukar") sound.blow(); else if (e.k === "vysavac") sound.suck();
+        sc.setFace(e.b, e.k === "louze" ? "worry" : e.k === "fukar" ? "fast" : "dizzy", 1300); if (e.by) sc.setFace(e.by, "smug", 1800); ui.mood[e.b] = "grr"; if (e.by) ui.mood[e.by] = "smug"; paintHud(); }
       else if (e.e === "voda") { sound.splash(); sc.burst(e.x, e.y, "voda"); sc.setFace(e.b, "wet", 1800); ui.mood[e.b] = "sad"; paintHud(); toast(e.b === by ? "Žbluňk! Zpátky na místo a rána navíc." : "Žbluňk!", 2200); }
       else if (e.e === "jamka") { sound.cup(); sc.burst(c.cup[0], c.cup[1], "jamka"); vis[e.b] = false; sc.setBall(e.b, null, false); }
       else if (e.e === "lip") { sound.lip(); sc.setFace(e.b, "worry", 900); }
@@ -447,7 +457,10 @@ cv.addEventListener("pointermove", e => {
     const px = Math.hypot(e.clientX - ui.aim.sx, e.clientY - ui.aim.sy), full = Math.max(150, Math.min(innerWidth, innerHeight) * 0.34);
     if (!g0 || !g1) return;
     ui.aim.pow = Math.min(1, px / full); ui.aim.ang = Math.atan2(g0.y - g1.y, g0.x - g1.x);
-    sc.setAim(m, ui.aim.ang, ui.aim.pow);
+    sc.setAim(m, ui.aim.ang, ui.aim.pow, aimPath(m, ui.aim.ang, ui.aim.pow));
+    // cvaknutí po každé desetině síly (a krátké zavibrování tam, kde to prohlížeč umí)
+    const step = Math.floor(ui.aim.pow * 10);
+    if (step !== ui.aim.step) { if (step > (ui.aim.step || 0)) { sound.tick(ui.aim.pow); buzz(4); } ui.aim.step = step; }
     const pw = $("pow");
     if (pw) { pw.style.setProperty("--p", ui.aim.pow.toFixed(3)); pw.classList.toggle("on", ui.aim.pow > 0.02); pw.querySelector("b").textContent = Math.round(ui.aim.pow * 100) + " %"; }
     return;
@@ -458,6 +471,23 @@ cv.addEventListener("pointermove", e => {
     pan = { x: e.clientX, y: e.clientY };
   }
 });
+// náhled: skutečná fyzika jen pro začátek dráhy (bez pastí, ty jsou překvapení), uříznutá kousek za prvním odrazem a před vodou
+const shotOf = (ang, pow) => { let A = Math.round(ang / (Math.PI * 2) * J.ANG); A = ((A % J.ANG) + J.ANG) % J.ANG; return { A, P: Math.max(40, Math.round(pow * 1000)) }; };
+function aimPath(m, ang, pow) {
+  const c = course(), s = shotOf(ang, pow), out = [];
+  const balls = G.balls[m].on ? G.balls : { ...G.balls, [m]: { x: c.tee[0], y: c.tee[1], on: true, in: false } };
+  let stop = 1e9, px = null, py = null;
+  const res = J.shoot({ c, traps: [], balls, n: G.n, lim: 150 }, { by: m, A: s.A, P: s.P }, (t, bx, bo) => {
+    if (t > stop) return;
+    const b = m === "x" ? bx : bo;
+    if (px !== null && Math.abs(b.x - px) + Math.abs(b.y - py) > 0.6) { stop = t; return; }   // voda / ven: míček skočil zpátky
+    out.push(b.x, b.y); px = b.x; py = b.y;
+  });
+  const hit = res.ev.find(e => e.b === m && (e.e === "zed" || e.e === "pero"));
+  if (hit) out.length = Math.min(out.length, (hit.t + 18) * 2);
+  return [balls[m].x, balls[m].y, ...out];
+}
+function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch { } }
 function endPtr(e) {
   pts.delete(e.pointerId);
   if (pts.size < 2) pinch = null;
@@ -466,8 +496,9 @@ function endPtr(e) {
     const a = ui.aim; ui.aim = null; const m = me();
     sc.setAim(m, 0, 0); $("pow")?.classList.remove("on");
     if (e.type === "pointercancel" || a.pow < 0.05) { sc.setFace(m, "idle"); return; }
-    let A = Math.round(a.ang / (Math.PI * 2) * J.ANG); A = ((A % J.ANG) + J.ANG) % J.ANG;
-    fire(A, Math.max(40, Math.round(a.pow * 1000)));
+    const s = shotOf(a.ang, a.pow);
+    buzz(a.pow > 0.7 ? 22 : 12);
+    fire(s.A, s.P);
   }
   pan = null;
 }

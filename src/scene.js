@@ -91,8 +91,10 @@ function blobTex() {
 }
 
 export function createScene(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  // Výkon na mobilu: na hustém displeji (DPR ≥ 2) vyhlazování MSAA skoro nevidět, ale stojí plnění pixelů; vypnuté.
+  const dpr0 = Math.min(devicePixelRatio || 1, 2);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: dpr0 < 2, powerPreference: "high-performance" });
+  renderer.setPixelRatio(dpr0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
@@ -177,6 +179,19 @@ export function createScene(canvas) {
     const WH = 0.26, WT = 0.16, posts = new Map();
     for (const s of c.segs) {
       const dx = s[2] - s[0], dz = s[3] - s[1], l = Math.sqrt(dx * dx + dz * dz), nx = dz / l, nz = -dx / l;
+      if (s[6]) {                                   // zábradlí mostu: nízká lať na dvou kolících, mírně nad vodou
+        const RH = 0.15, RT = 0.05, h0 = s[4] + 0.02;
+        const P = (f, o, y) => [s[0] + dx * f + nx * o, h0 + y, s[1] + dz * f + nz * o];
+        m.quad(P(0, -RT, RH), P(0, RT, RH), P(1, RT, RH), P(1, -RT, RH), th.plank);
+        m.quad(P(0, -RT, RH - 0.06), P(0, -RT, RH), P(1, -RT, RH), P(1, -RT, RH - 0.06), th.plank2);
+        m.quad(P(1, RT, RH - 0.06), P(1, RT, RH), P(0, RT, RH), P(0, RT, RH - 0.06), th.plank2);
+        for (const f of [0.12, 0.88]) {
+          const q = 0.035, cx = s[0] + dx * f, cz = s[1] + dz * f;
+          for (const [ax, az, bx, bz] of [[-q, -q, q, -q], [q, -q, q, q], [q, q, -q, q], [-q, q, -q, -q]])
+            m.quad([cx + ax, h0, cz + az], [cx + bx, h0, cz + bz], [cx + bx, h0 + RH - 0.06, cz + bz], [cx + ax, h0 + RH - 0.06, cz + az], th.plank2);
+        }
+        continue;
+      }
       const a0 = [s[0], s[4], s[1]], b0 = [s[2], s[5], s[3]];
       const a1 = [s[0], s[4] + WH, s[1]], b1 = [s[2], s[5] + WH, s[3]];
       const a2 = [s[0] + nx * WT, s[4] + WH, s[1] + nz * WT], b2 = [s[2] + nx * WT, s[5] + WH, s[3] + nz * WT];
@@ -305,7 +320,7 @@ export function createScene(canvas) {
   function trapMesh(t, ghostMode) {
     const g = new THREE.Group(), geo = J.trapGeom(t), h = J.surf(c, geo.x, geo.y).h;
     const owner = t.by ? PLAYER[t.by].ball : "#ffffff";
-    const ringR = t.k === "mlyn" ? J.MLYN_R + 0.08 : t.k === "louze" ? J.LOUZE_R : t.k === "kopec" ? J.KOPEC_R : 0.32;
+    const ringR = t.k === "mlyn" ? J.MLYN_R + 0.08 : t.k === "louze" ? J.LOUZE_R : t.k === "kopec" ? J.KOPEC_R : t.k === "vysavac" ? J.VYS_R : 0.32;
     const ring = new THREE.Mesh(new THREE.RingGeometry(ringR - 0.05, ringR, 28), new THREE.MeshBasicMaterial({ color: owner, transparent: true, opacity: 0.85, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; g.add(ring);
     if (t.k === "mlyn") {
@@ -352,6 +367,38 @@ export function createScene(canvas) {
       const nose = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), lowMat("#FF8FA3")); nose.position.set(0, -0.02, 0.17); mole.add(nose);
       for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 4), lowMat("#FFFFFF")); e.position.set(s * 0.07, 0.06, 0.14); mole.add(e); const p = new THREE.Mesh(new THREE.SphereGeometry(0.018, 5, 4), lowMat("#1E1B2E")); p.position.set(s * 0.07, 0.06, 0.17); mole.add(p); }
       mole.position.set(0, J.KOPEC_H + 0.05, 0); g.add(mole); g.userData.mole = mole;
+    } else if (t.k === "fukar") {
+      // obláček s nafouknutými tvářemi fouká po místní ose +x; před ním pruhy proudu
+      const cloud = new THREE.Group();
+      for (const [x, y, z, r] of [[0, 0.3, 0, 0.24], [-0.14, 0.24, 0.15, 0.16], [-0.14, 0.24, -0.15, 0.16], [-0.2, 0.42, 0, 0.15]]) {
+        const p = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), lowMat("#FFFFFF", { emissive: 0x4a4a4a })); p.position.set(x, y, z); cloud.add(p);
+      }
+      cloud.scale.setScalar(1.3); cloud.userData.s = 1.3;
+      for (const s of [-1, 1]) {
+        const e = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), lowMat("#1E1B2E")); e.position.set(0.2, 0.38, s * 0.08); cloud.add(e);
+        const ch = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), lowMat("#FF8FA3")); ch.position.set(0.18, 0.28, s * 0.15); ch.scale.set(0.5, 1, 1); cloud.add(ch);
+      }
+      const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.018, 5, 10), lowMat("#1E1B2E")); mouth.position.set(0.235, 0.27, 0); mouth.rotation.y = Math.PI / 2; cloud.add(mouth);
+      g.add(cloud); g.userData.cloud = cloud;
+      const streaks = [];
+      for (let i = 0; i < 6; i++) {
+        const sm = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.045), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }));
+        sm.rotation.x = -Math.PI / 2; sm.userData.z = (i % 3 - 1) * J.FUK_W * 0.6; sm.userData.ph = i / 6; sm.position.set(0, 0.03, sm.userData.z); g.add(sm); streaks.push(sm);
+      }
+      g.userData.streaks = streaks; g.userData.reach = J.fukReach(c, t);
+      g.rotation.y = -t.a * Math.PI * 2 / J.ROT;
+    } else if (t.k === "vysavac") {
+      // robotí vysavač: placka s nárazníkem, očima a kartáčkem
+      const bot = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.09, 16), lowMat("#4A4458")); body.position.y = 0.045; bot.add(body);
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.03, 16), lowMat("#6E6784")); top.position.y = 0.1; bot.add(top);
+      const bump = new THREE.Mesh(new THREE.CylinderGeometry(0.405, 0.405, 0.04, 16, 1, true, -0.9, 1.8), lowMat(th.accent)); bump.position.y = 0.05; bot.add(bump);
+      for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 5), lowMat("#9FF0FF", { emissive: 0x2a8fa0 })); e.position.set(0.2, 0.115, s * 0.1); e.scale.set(1, 0.5, 1); bot.add(e); }
+      const brush = new THREE.Group(); brush.position.set(0.24, 0.02, 0.24);
+      for (let q = 0; q < 3; q++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.01, 0.015), lowMat("#FFFFFF")); b.position.x = 0.08; const piv = new THREE.Group(); piv.rotation.y = q * 2.09; piv.add(b); brush.add(piv); }
+      bot.add(brush); g.add(bot); g.userData.bot = bot; g.userData.brush = brush;
+      const swirl = new THREE.Mesh(new THREE.RingGeometry(J.VYS_R * 0.55, J.VYS_R * 0.6, 24, 1, 0, 4.2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false }));
+      swirl.rotation.x = -Math.PI / 2; swirl.position.y = 0.015; g.add(swirl); g.userData.swirl = swirl;
     }
     g.position.set(geo.x, h, geo.y);
     if (ghostMode) g.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.55; o.material.depthWrite = false; } });
@@ -416,22 +463,49 @@ export function createScene(canvas) {
   function turnRing(k) { for (const q of ["x", "o"]) balls[q].ring.material.opacity = q === k ? 0.9 : 0; }
 
   // ---------- míření ----------
-  function setAim(k, ang, pow) {
+  // path: body předpovězené dráhy [x0, y0, x1, y1, …] ze skutečné fyziky (main.js, jen začátek a první odraz); bez ní rovná čára
+  const aimCol = [col("#FFFFFF"), col("#FFD23F"), col("#FF6A3D")], tmpC = new THREE.Color();
+  function setAim(k, ang, pow, path) {
     const o = balls[k];
+    o.aimSq = pow > 0.02 ? pow : 0;
     if (pow == null || pow <= 0.02) { dots.forEach(d => d.visible = false); arrow.visible = false; return; }
-    const ux = Math.cos(ang), uz = Math.sin(ang), len = 0.4 + pow * 3.2;
-    const n = Math.round(4 + pow * 10);
+    if (!path || path.length < 4) path = [o.x, o.y, o.x + Math.cos(ang) * 4, o.y + Math.sin(ang) * 4];
+    const len = 1.0 + pow * 2.9, gap = len / dots.length;
+    // barva podle síly: bílá → žlutá → oranžová
+    if (pow < 0.6) tmpC.copy(aimCol[0]).lerp(aimCol[1], pow / 0.6); else tmpC.copy(aimCol[1]).lerp(aimCol[2], (pow - 0.6) / 0.4);
+    let seg = 0, acc = 0, want = gap * 0.8, px = path[0], pz = path[1], ex = px, ez = pz, dx = 1, dz = 0;
     dots.forEach((d, i) => {
-      if (i >= n) { d.visible = false; return; }
-      const f = (i + 1) / n, x = o.x + ux * len * f, z = o.y + uz * len * f;
-      const ww = J.where(c, x, z);
-      d.visible = ww !== J.VOID;
-      d.position.set(x, J.surf(c, x, z).h + 0.03, z); d.material.opacity = 0.95 - f * 0.55; d.scale.setScalar(1 + pow * 0.6 * (1 - f));
+      while (seg + 3 < path.length) {
+        const ax = path[seg], az = path[seg + 1], bx = path[seg + 2], bz = path[seg + 3], l = Math.hypot(bx - ax, bz - az);
+        if (acc + l >= want) { const f = l ? (want - acc) / l : 0; px = ax + (bx - ax) * f; pz = az + (bz - az) * f; if (l) { dx = (bx - ax) / l; dz = (bz - az) / l; } break; }
+        acc += l; seg += 2;
+      }
+      const out = seg + 3 >= path.length || want > len;
+      d.visible = !out && J.where(c, px, pz) !== J.VOID;
+      if (d.visible) { ex = px; ez = pz; }
+      const f = (i + 1) / dots.length;
+      d.position.set(px, J.surf(c, px, pz).h + 0.03, pz); d.material.opacity = 0.95 - f * 0.6; d.material.color.copy(tmpC); d.scale.setScalar(1 + pow * 0.7 * (1 - f));
+      want += gap;
     });
-    const x = o.x + ux * (len + 0.15), z = o.y + uz * (len + 0.15);
+    const x = ex + dx * 0.15, z = ez + dz * 0.15;
     arrow.visible = J.where(c, x, z) !== J.VOID; arrow.position.set(x, J.surf(c, x, z).h + 0.06, z);
-    arrow.rotation.set(-Math.PI / 2, 0, -ang - Math.PI / 2);
-    arrow.material.color = col(pow > 0.85 ? "#FFD23F" : "#FFFFFF");
+    arrow.rotation.set(-Math.PI / 2, 0, -Math.atan2(dz, dx) - Math.PI / 2);
+    arrow.material.color.copy(tmpC);
+  }
+  // náraz: míček se na chvíli zmáčkne (úder, zeď, pérovačka); s > 0,5 přidá obláček prachu
+  function kick(k, s) {
+    const o = balls[k]; o.squash = Math.max(o.squash || 0, Math.min(1, s));
+    if (s > 0.5 && o.vis) puff(o.x, o.y, s);
+  }
+  function puff(x, y, s) {
+    const z = J.surf(c, x, y).h, n = Math.round(4 + s * 4);
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(partGeo.chip, new THREE.MeshBasicMaterial({ color: th.puff || "#FFFFFF", transparent: true, opacity: 0.8 }));
+      const a = i / n * Math.PI * 2 + Math.random() * 0.5;
+      m.position.set(x, z + 0.05, y); m.scale.setScalar(0.7 + Math.random() * 0.5);
+      m.userData.v = new THREE.Vector3(Math.cos(a) * 0.018 * s, 0.018 + Math.random() * 0.012, Math.sin(a) * 0.018 * s);
+      m.userData.life = 0.7; fx.add(m); parts.push(m);
+    }
   }
 
   // ---------- efekty ----------
@@ -736,8 +810,30 @@ export function createScene(canvas) {
   }
   function skip() { if (anim) anim.speed = 4; }
 
+  // fukar: pruhy proudu ujíždějí od hubice a mizí, obláček se nafukuje; vysavač: kartáček a vír
+  function idleTrap(u, now) {
+    if (u.streaks) for (const s of u.streaks) {           // proud končí u zdi (stejný dosah jako ve fyzice)
+      const f = (now / 900 + s.userData.ph) % 1, L = Math.max(0, u.reach - 0.25);
+      s.position.x = J.FUK_B + 0.2 + f * L; s.material.opacity = L > 0.1 ? 0.6 * Math.sin(f * Math.PI) : 0;
+    }
+    if (u.cloud) { const s0 = u.cloud.userData.s, p = 1 + Math.sin(now / 260) * 0.05; u.cloud.scale.set(s0, s0 * p, s0 * p); }
+    if (u.brush) u.brush.rotation.y = now / 120;
+    if (u.swirl) u.swirl.rotation.z = now / 700;
+  }
+
   // ---------- smyčka ----------
   let W0 = 1, H0 = 1, last = performance.now(), running = true;
+  // V klidu (nic se nehýbe kromě praporku a kachny) se kreslí každý druhý snímek. Když telefon při pohybu dlouho nestíhá
+  // (víc než 60 % snímků přes 28 ms), sníží se rozlišení o stupeň (2 → 1,65 → 1,3 → 1). Pod Playwrightem (navigator.webdriver) ne, ať rendery zůstanou ostré.
+  const perf = { odd: 0, n: 0, slow: 0, wasActive: false, camP: new THREE.Vector3(), pr: dpr0, adapt: !navigator.webdriver };
+  function adaptPR(dtRaw, active) {
+    if (!perf.adapt || document.hidden) return;
+    if (active && perf.wasActive) { perf.n++; if (dtRaw > 0.028) perf.slow++; }
+    perf.wasActive = active;
+    if (perf.n < 90) return;
+    if (perf.slow > perf.n * 0.6 && perf.pr > 1.01) { perf.pr = Math.max(1, perf.pr - 0.35); renderer.setPixelRatio(perf.pr); renderer.setSize(W0, H0, false); }
+    perf.n = perf.slow = 0;
+  }
   function resize() {
     const r = canvas.getBoundingClientRect(); W0 = Math.max(1, r.width); H0 = Math.max(1, r.height);
     renderer.setSize(W0, H0, false); aspect = W0 / H0; camera.aspect = aspect; camera.clearViewOffset(); camera.updateProjectionMatrix(); fitHole(); redecorate(); if (cam.mode === "ball" && cam.follow) fitBall(cam.follow); if (cam.mode === "cup") fitCup();
@@ -745,7 +841,7 @@ export function createScene(canvas) {
   function frame(now) {
     if (!running) return;
     requestAnimationFrame(frame);
-    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
+    const dtRaw = Math.max(0, (now - last) / 1000), dt = Math.min(0.05, dtRaw); last = now;
     if (!c) return;
     if (anim) {
       const tick = Math.floor((now - anim.t0) / 1000 * 60 * anim.speed);
@@ -761,6 +857,11 @@ export function createScene(canvas) {
       if (o.until && now > o.until) { o.until = 0; o.face.material.map = faceTex(o.face0); o.face.material.needsUpdate = true; }
       if (o.party) o.hop = Math.abs(Math.sin(now / 240 + (k === "o" ? 1.4 : 0))) * 0.12;
       if (o.vis) place(k);
+      // zmáčknutí: náraz rychle odezní, při míření se míček „napíná“ podle síly
+      const sq = Math.max(o.squash || 0, (o.aimSq || 0) * 0.35);
+      o.body.scale.set(1 + sq * 0.3, 1 - sq * 0.4, 1 + sq * 0.3);
+      if (sq && o.vis) o.g.position.y -= J.R * sq * 0.4;
+      if (o.squash) { o.squash *= Math.pow(0.0004, dt); if (o.squash < 0.01) o.squash = 0; }
     }
     // pasti: kachna se pohupuje, krtek kouká, pád při odhalení
     for (const m of traps) {
@@ -768,8 +869,10 @@ export function createScene(canvas) {
       if (u.drop) { const t = Math.min(1, (now - u.drop) / 650), e = t < 1 ? (1 - t) * (1 - t) * 3 - Math.sin(t * Math.PI) * 0.15 : 0; m.position.y = base + Math.max(-0.05, e); if (t >= 1) u.drop = 0; }
       if (u.duck) u.duck.position.y = 0.1 + Math.sin(now / 420) * 0.02;
       if (u.mole) u.mole.position.y = J.KOPEC_H + 0.02 + Math.max(0, Math.sin(now / 900)) * 0.06;
+      idleTrap(u, now);
     }
     if (ghost && ghost.userData.rot) ghost.userData.rot.rotation.y = -now / 1000 * 1.8;
+    if (ghost) idleTrap(ghost.userData, now);
     if (flag) flag.userData.cloth.rotation.y = Math.sin(now / 700) * 0.25;
     for (let i = parts.length - 1; i >= 0; i--) {
       const m = parts[i], u = m.userData;
@@ -778,6 +881,10 @@ export function createScene(canvas) {
       if (u.life <= 0) { fx.remove(m); m.material.dispose(); parts.splice(i, 1); }
     }
     updateCam(dt);
+    const camMoved = camera.position.distanceToSquared(perf.camP) > 1e-7; perf.camP.copy(camera.position);
+    const active = !!anim || parts.length > 0 || camMoved || !!ghost || balls.x.squash > 0 || balls.o.squash > 0 || balls.x.aimSq > 0 || balls.o.aimSq > 0 || balls.x.party || balls.o.party;
+    adaptPR(dtRaw, active);
+    if (!active && (perf.odd++ & 1)) return;
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
@@ -785,7 +892,7 @@ export function createScene(canvas) {
   resize();
 
   return {
-    setHole, setTraps, dropTraps, sinkBall, showCup, setBlades, fadeOwn, setGhost, setBall, setFace, turnRing, setAim, burst,
+    setHole, setTraps, dropTraps, sinkBall, showCup, setBlades, fadeOwn, setGhost, setBall, setFace, turnRing, setAim, burst, kick,
     setMode, frameBall, snapCam, groundAt, toScreen, playFrames, skip, resize,
     get mode() { return cam.mode; }, get pads() { return { hudPad, ballPad, hudRects }; }, cam, balls, get busy() { return !!anim; },
     setHudRects(r) { hudRects = r || []; },

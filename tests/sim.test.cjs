@@ -170,7 +170,7 @@ function playWholeGame(seed, first) {
   check("pasti: výsledek nezávisí na tom, kdo past postavil první", st.order === 0, `${st.order} rozdílů z ${st.cases}`);
   // c2) pevný případ, kdy pro past 'o' není v okolí 3 políček žádné platné místo: propadne (pend.o === false)
   {
-    const g0 = { ...J.newGame(2689521274, "x"), hole: 0 }, tx = { k: "mlyn", x: 50, y: 50, a: 0 }, to = { k: "mlyn", x: 50, y: 50, a: 0 };
+    const g0 = { ...J.newGame(836490882, "x"), hole: 0 }, tx = { k: "mlyn", x: 150, y: 80, a: 0 }, to = { k: "mlyn", x: 150, y: 80, a: 0 };   // seed nalezený hledáním (hashStr("propad:23")), oba mají v nabídce mlýnek
     const a = J.placeTrap(J.placeTrap(g0, "x", tx), "o", to), b = J.placeTrap(J.placeTrap(g0, "o", to), "x", tx);
     check("pasti: když pro past 'o' není volné místo, propadne (pend.o false, zůstane past x) a ne podle pořadí", a.pend.o === false && a.traps.length === 1 && a.traps[0].by === "x" && a.ph === "play" && JSON.stringify(a.traps) === JSON.stringify(b.traps) && b.pend.o === false);
   }
@@ -218,6 +218,63 @@ function playWholeGame(seed, first) {
   check("botHuman: deterministický (stejný klíč = stejná rána, 72 jamek dvakrát)", same);
   check("botHuman: v průměru lehce nad par (1,0–1,5× par), tedy ne dokonalý ani hloupý", strokes / par >= 1.0 && strokes / par <= 1.5, `${strokes} ran / par ${par} = ${(strokes / par).toFixed(2)}, ${ms(t0)} ms`);
   check("botHuman: dokonalý bot ho porazí jen na části jamek (s botem se dá utkat)", beat > 0 && beat < holes, `dokonalý lepší ${beat}× z ${holes} jamek, ran dokonalého ${perfect}`);
+}
+
+// ---------- 8) kolo 1. 11.: nové pasti, zábradlí mostů, žádné par 2 ve finále ----------
+{
+  const t0 = performance.now();
+  // a) finále nikdy par 2 a nejvýš jedna jamka par 2 za partii; náledí nikdy na mostě
+  let finals = 0, multi = 0, ledMost = 0;
+  for (let i = 1; i <= 40; i++) {
+    const seed = J.hashStr("kolo:" + i), hs = [0, 1, 2, 3, 4, 5].map(h => J.hole(seed, h));
+    if (hs[5].par === 2) finals++;
+    if (hs.filter(c => c.par === 2).length > 1) multi++;
+    for (const c of hs) if (c.mod === "led" && c.legs.some(l => l.f === "most")) ledMost++;
+  }
+  check("generátor: finále bez paru 2, max. jedna jamka par 2 za partii, náledí nikdy s mostem (40 partií)", !finals && !multi && !ledMost, `finále par 2: ${finals}, víc par 2: ${multi}, náledí+most: ${ledMost}`);
+  // b) most má zábradlí na každé hraně prkna, za kterou je voda
+  let bridges = 0, rails = 0;
+  for (let i = 1; i <= 40 && bridges < 10; i++) for (let h = 0; h < 6; h++) {
+    const c = J.hole(J.hashStr("kolo:" + i), h); if (![...c.type].includes(J.BRIDGE)) continue;
+    bridges++; if (c.segs.some(s => s[6] === 1)) rails++;
+  }
+  check("mosty: každá jamka s mostem má zábradlí", bridges >= 5 && rails === bridges, `${rails}/${bridges}`);
+  // c) fukar: pomalý průjezd proudem míček odnese stranou, stojící míček v proudu nechá být, vlastní past nepůsobí
+  const c = J.hole(J.hashStr("kolo:3"), 1), ball = (x, y) => ({ x: { x, y, on: true, in: false }, o: { x: 0, y: 0, on: false, in: false } });
+  let fk = null;
+  for (let y = 0; y < c.H && !fk; y++) for (let x = 0; x < c.W && !fk; x++) for (let a = 0; a < J.ROT; a += 4) {
+    const t = { by: "o", k: "fukar", x: x * 20 + 10, y: y * 20 + 10, a };
+    const g = J.trapGeom(t), bx = g.x + g.ux * 1.0, by = g.y + g.uy * 1.0;
+    if (J.trapValid(c, t) && J.where(c, bx - g.uy * 1.2, by + g.ux * 1.2) === J.FLOOR && J.where(c, bx, by) === J.FLOOR && J.where(c, bx + g.uy * 1.2, by - g.ux * 1.2) === J.FLOOR) { fk = { t, g, bx, by }; break; }
+  }
+  if (fk) {
+    // míček jede napříč proudem (kolmo na fukar) z místa 0,9 políčka bokem
+    const sx = fk.bx - fk.g.uy * 0.9, sy = fk.by + fk.g.ux * 0.9, A = Math.round(Math.atan2(-fk.g.ux, fk.g.uy) / J.TAU * J.ANG + J.ANG) % J.ANG;
+    const run = traps => J.shoot({ c, traps, balls: ball(sx, sy), n: 0 }, { by: "x", A, P: 260 });
+    const free = run([]), blown = run([fk.t]), own = run([{ ...fk.t, by: "x" }]);
+    const along = r => (r.balls.x.x - sx) * fk.g.ux + (r.balls.x.y - sy) * fk.g.uy;
+    check("fukar: projíždějící míček odnese po proudu, vlastní fukar nepůsobí", along(blown) > along(free) + 0.15 && JSON.stringify(own.balls) === JSON.stringify(free.balls), `po proudu ${along(free).toFixed(2)} → ${along(blown).toFixed(2)}`);
+    const rest = J.shoot({ c, traps: [fk.t], balls: { x: { x: sx, y: sy, on: true, in: false }, o: { x: fk.bx, y: fk.by, on: true, in: false } }, n: 0 }, { by: "x", A: (A + J.ANG / 2) % J.ANG, P: 120 });
+    check("fukar: stojící míček v proudu zůstane ležet", Math.abs(rest.balls.o.x - fk.bx) < 1e-9 && Math.abs(rest.balls.o.y - fk.by) < 1e-9);
+  } else check("fukar: nalezeno místo pro test", false);
+  // d) vysavač: pomalý míček kolem něj skončí na robotovi, rychlý projede
+  let vs = null;
+  for (let y = 0; y < c.H && !vs; y++) for (let x = 0; x < c.W && !vs; x++) { const t = { by: "o", k: "vysavac", x: x * 20 + 10, y: y * 20 + 10, a: 0 }; if (J.trapValid(c, t) && J.where(c, t.x / 20 - 1.5, t.y / 20 + 0.45) === J.FLOOR && J.where(c, t.x / 20 + 1.5, t.y / 20 + 0.45) === J.FLOOR) vs = t; }
+  if (vs) {
+    const vx = vs.x / 20, vy = vs.y / 20, b0 = ball(vx - 1.5, vy + 0.45);
+    const slow = J.shoot({ c, traps: [vs], balls: b0, n: 0 }, { by: "x", A: 0, P: 260 }), fast = J.shoot({ c, traps: [vs], balls: b0, n: 0 }, { by: "x", A: 0, P: 700 });
+    const d = r => Math.hypot(r.balls.x.x - vx, r.balls.x.y - vy);
+    check("vysavač: pomalý míček vysaje (skončí na robotovi), rychlý projede", d(slow) < J.VYS_IN && d(fast) > J.VYS_R, `pomalý ${d(slow).toFixed(2)}, rychlý ${d(fast).toFixed(2)}`);
+  } else check("vysavač: nalezeno místo pro test", false);
+  // e) žádný úder s novými pastmi nedojde na limit tiků (míček se u zdi v proudu netřese donekonečna)
+  let shots = 0, maxT = 0;
+  for (let i = 1; i <= 6; i++) for (const h of [1, 3]) {
+    const cc = J.hole(J.hashStr("kolo:" + i), h), r = J.rng(i * 31 + h), tr = [];
+    for (const k of ["fukar", "vysavac"]) for (let q = 0; q < 400 && tr.filter(t => t.k === k).length < 1; q++) { const t = { by: "o", k, x: Math.floor(r() * cc.W * 20), y: Math.floor(r() * cc.H * 20), a: Math.floor(r() * J.ROT) }; if (J.trapValid(cc, t)) tr.push(t); }
+    for (let s = 0; s < 24; s++) { const res = J.shoot({ c: cc, traps: tr, balls: ball(cc.tee[0], cc.tee[1]), n: s }, { by: "x", A: s * 171 % J.ANG, P: 150 + s * 37 % 850 }); shots++; if (res.ticks > maxT) maxT = res.ticks; }
+  }
+  check("nové pasti: žádný úder nedojde na limit tiků (288 úderů)", shots === 288 && maxT < 2399, `nejdelší ${maxT} tiků`);
+  console.log(`      (${ms(t0)} ms)`);
 }
 
 console.log(`\n${pass}/${pass + fail} PASS${fail ? `, ${fail} FAIL` : ""}`);
